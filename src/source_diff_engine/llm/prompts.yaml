@@ -1,0 +1,451 @@
+system:
+  template: |
+    You are a source-code diff analyst.
+
+    Core rules:
+    1. Use only evidence visible in the provided code and local_context.
+    2. Return exactly one valid JSON object and nothing else.
+    3. Do not output markdown, code fences, commentary, or extra keys.
+    4. Be conservative. If evidence is incomplete, lower confidence and mark review_required=true.
+    5. Do not invent guards, sources, sinks, or exploit paths that are not supported by the code.
+    6. Treat local_context enclosing-symbol metadata as scope hints only. The diff hunk remains the primary evidence unit.
+    7. If you report vulnerability_score >= 5.0 for a newly introduced vulnerability, include at least one concrete source and one concrete sink from the visible code.
+    8. If only one side of the path is visible, prefer vulnerability_type=unknown or a lower score with review_required=true.
+
+    Required top-level keys:
+    - change_type
+    - vulnerability_type
+    - vulnerability_score
+    - source_to_sink_conditions
+    - vulnerability_findings
+    - confidence
+    - review_required
+  fields: []
+
+generic_review:
+  template: |
+    Analyze this diff unit for generic change impact.
+
+    Input:
+    old_unit: {old_unit}
+    new_unit: {new_unit}
+    similarity: {similarity}
+    local_context: {local_context}
+
+    [old_code]
+    {old_code}
+
+    [new_code]
+    {new_code}
+
+    Return exactly one JSON object with this contract:
+    {{
+      "change_type": "security fix|non_security|new code|removed|unknown",
+      "vulnerability_type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+      "vulnerability_score": 0.0,
+      "source_to_sink_conditions": {{
+        "sources": [],
+        "guards": [],
+        "sinks": [],
+        "condition_chain": ""
+      }},
+      "vulnerability_findings": [
+        {{
+          "type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+          "score": 0.0,
+          "evidence": "code-grounded evidence only"
+        }}
+      ],
+      "confidence": 0.0,
+      "review_required": true
+    }}
+  fields:
+    - old_unit
+    - new_unit
+    - similarity
+    - old_code
+    - new_code
+    - local_context
+
+behavior_review:
+  template: |
+    Analyze this diff unit for behavior and interface impact.
+
+    Input:
+    old_unit: {old_unit}
+    new_unit: {new_unit}
+    similarity: {similarity}
+    local_context: {local_context}
+
+    [old_code]
+    {old_code}
+
+    [new_code]
+    {new_code}
+
+    Return exactly one JSON object with this contract:
+    {{
+      "change_type": "security fix|non_security|new code|removed|unknown",
+      "vulnerability_type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+      "vulnerability_score": 0.0,
+      "source_to_sink_conditions": {{
+        "sources": [],
+        "guards": [],
+        "sinks": [],
+        "condition_chain": ""
+      }},
+      "vulnerability_findings": [
+        {{
+          "type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+          "score": 0.0,
+          "evidence": "code-grounded evidence only"
+        }}
+      ],
+      "confidence": 0.0,
+      "review_required": true
+    }}
+  fields:
+    - old_unit
+    - new_unit
+    - similarity
+    - old_code
+    - new_code
+    - local_context
+
+api_surface_review:
+  template: |
+    Analyze this diff unit for API surface and entrypoint impact.
+
+    Input:
+    old_unit: {old_unit}
+    new_unit: {new_unit}
+    similarity: {similarity}
+    local_context: {local_context}
+
+    [old_code]
+    {old_code}
+
+    [new_code]
+    {new_code}
+
+    Return exactly one JSON object with this contract:
+    {{
+      "change_type": "security fix|non_security|new code|removed|unknown",
+      "vulnerability_type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+      "vulnerability_score": 0.0,
+      "source_to_sink_conditions": {{
+        "sources": [],
+        "guards": [],
+        "sinks": [],
+        "condition_chain": ""
+      }},
+      "vulnerability_findings": [
+        {{
+          "type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+          "score": 0.0,
+          "evidence": "code-grounded evidence only"
+        }}
+      ],
+      "confidence": 0.0,
+      "review_required": true
+    }}
+  fields:
+    - old_unit
+    - new_unit
+    - similarity
+    - old_code
+    - new_code
+    - local_context
+
+security_review:
+  template: |
+    Analyze this diff unit for security impact.
+
+    Input:
+    old_unit: {old_unit}
+    new_unit: {new_unit}
+    similarity: {similarity}
+    local_context: {local_context}
+
+    [old_code]
+    {old_code}
+
+    [new_code]
+    {new_code}
+
+    Return exactly one JSON object with this contract:
+    {{
+      "change_type": "security fix|non_security|new code|removed|unknown",
+      "vulnerability_type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+      "vulnerability_score": 0.0,
+      "source_to_sink_conditions": {{
+        "sources": [],
+        "guards": [],
+        "sinks": [],
+        "condition_chain": "source -> guard -> sink"
+      }},
+      "vulnerability_findings": [
+        {{
+          "type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+          "score": 0.0,
+          "evidence": "code-grounded evidence only"
+        }}
+      ],
+      "confidence": 0.0,
+      "review_required": true
+    }}
+
+    Scoring guidance:
+    - non_security: 0-2
+    - likely benign new code: 0-2
+    - uncertain or incomplete evidence: 0-4
+    - security hardening without a full exploit chain: 5-7
+    - clear exploitable path or clear security fix: 7-10
+    - Do not report a high-risk new vulnerability unless sources and sinks are concrete, code-grounded entries.
+  fields:
+    - old_unit
+    - new_unit
+    - similarity
+    - old_code
+    - new_code
+    - local_context
+
+security_review_fix:
+  template: |
+    Analyze whether this modification is a security fix.
+
+    Focus on:
+    - newly added validation, sanitization, normalization, authorization, or boundary checks
+    - removal of dangerous calls or dangerous usage patterns
+    - hardening of an existing source -> guard -> sink path
+    - distinguishing true security fixes from refactors, logging, naming, formatting, and performance work
+
+    Input:
+    old_unit: {old_unit}
+    new_unit: {new_unit}
+    similarity: {similarity}
+    local_context: {local_context}
+
+    [old_code]
+    {old_code}
+
+    [new_code]
+    {new_code}
+
+    Output rules:
+    - If this is clearly not security-related, use "change_type": "non_security", "vulnerability_type": "none", and score 0-2.
+    - If this is a defensive hardening change but the exploit chain is partial, use "change_type": "security fix", "vulnerability_type": "security hardening", and score 5-7.
+    - If you cannot support the conclusion from code evidence, use "change_type": "unknown" and/or "vulnerability_type": "unknown", low confidence, review_required=true.
+    - If you report a specific vulnerability type other than "security hardening", identify the risky source and sink in the vulnerable path. If you cannot, prefer "security hardening" or "unknown".
+    - sources, guards, and sinks must be arrays of concrete code evidence when available. If missing, keep the array empty but still include condition_chain.
+
+    Return exactly one JSON object with this contract:
+    {{
+      "change_type": "security fix|non_security|unknown",
+      "vulnerability_type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+      "vulnerability_score": 0.0,
+      "source_to_sink_conditions": {{
+        "sources": [],
+        "guards": [],
+        "sinks": [],
+        "condition_chain": "source -> guard -> sink"
+      }},
+      "vulnerability_findings": [
+        {{
+          "type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+          "score": 0.0,
+          "evidence": "code-grounded evidence only"
+        }}
+      ],
+      "confidence": 0.0,
+      "review_required": true
+    }}
+  fields:
+    - old_unit
+    - new_unit
+    - similarity
+    - old_code
+    - new_code
+    - local_context
+
+security_review_new_code:
+  template: |
+    Analyze whether the newly added code introduces a new vulnerability.
+
+    Focus on:
+    - user-controlled input reaching dangerous sinks
+    - whether visible guards actually constrain the risky path
+    - distinguishing benign feature work from exploitable new attack paths
+
+    Input:
+    old_unit: {old_unit}
+    new_unit: {new_unit}
+    similarity: {similarity}
+    local_context: {local_context}
+
+    [old_code]
+    {old_code}
+
+    [new_code]
+    {new_code}
+
+    Output rules:
+    - If added code is benign or clearly guarded, use low scores or "vulnerability_type": "none" when appropriate.
+    - If the code shows a clear source -> sink path, report the best-supported vulnerability type and capture any visible guards.
+    - Do not report a score >= 5.0 unless sources and sinks both contain concrete code-grounded entries from the added path.
+    - If you only see a dangerous sink or a suspicious input but not both ends of the path, use low scores or "unknown".
+    - If evidence is ambiguous, use "vulnerability_type": "unknown", low confidence, and review_required=true.
+
+    Return exactly one JSON object with this contract:
+    {{
+      "change_type": "new code|non_security|unknown",
+      "vulnerability_type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+      "vulnerability_score": 0.0,
+      "source_to_sink_conditions": {{
+        "sources": [],
+        "guards": [],
+        "sinks": [],
+        "condition_chain": "source -> guard -> sink"
+      }},
+      "vulnerability_findings": [
+        {{
+          "type": "command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|security hardening|ssrf|unsafe reflection|file upload|none|unknown",
+          "score": 0.0,
+          "evidence": "code-grounded evidence only"
+        }}
+      ],
+      "confidence": 0.0,
+      "review_required": true
+    }}
+  fields:
+    - old_unit
+    - new_unit
+    - similarity
+    - old_code
+    - new_code
+    - local_context
+
+security_review_hardening:
+  template: |
+    Analyze whether this diff represents security hardening rather than a new vulnerability.
+
+    Focus on:
+    - guard additions that tighten an existing path
+    - defense-in-depth that reduces exploitability
+    - avoiding false positives on defensive code
+
+    Input:
+    old_unit: {old_unit}
+    new_unit: {new_unit}
+    similarity: {similarity}
+    local_context: {local_context}
+
+    [old_code]
+    {old_code}
+
+    [new_code]
+    {new_code}
+
+    Output rules:
+    - Prefer "vulnerability_type": "security hardening" when the change is protective and not itself a vulnerability.
+    - If the code is not security-related, use "change_type": "non_security" and low scores.
+    - If you name a vulnerability type other than "security hardening", identify the existing risky source and sink that the new guard constrains.
+    - If you cannot reconstruct the risky path from visible code, prefer "security hardening" or "unknown".
+    - If the evidence is weak, use "unknown" and review_required=true.
+
+    Return exactly one JSON object with this contract:
+    {{
+      "change_type": "security fix|non_security|unknown",
+      "vulnerability_type": "security hardening|command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|ssrf|unsafe reflection|file upload|none|unknown",
+      "vulnerability_score": 0.0,
+      "source_to_sink_conditions": {{
+        "sources": [],
+        "guards": [],
+        "sinks": [],
+        "condition_chain": "source -> guard -> sink"
+      }},
+      "vulnerability_findings": [
+        {{
+          "type": "security hardening|command execution|sql injection|path traversal|deserialization|credential leak|xss|code injection|ssrf|unsafe reflection|file upload|none|unknown",
+          "score": 0.0,
+          "evidence": "code-grounded evidence only"
+        }}
+      ],
+      "confidence": 0.0,
+      "review_required": true
+    }}
+  fields:
+    - old_unit
+    - new_unit
+    - similarity
+    - old_code
+    - new_code
+    - local_context
+
+repair_json:
+  template: |
+    Repair the following content into exactly one valid JSON object.
+
+    Output rules:
+    - Return JSON only.
+    - Do not use markdown or code fences.
+    - Keep exactly these top-level keys:
+      change_type
+      vulnerability_type
+      vulnerability_score
+      source_to_sink_conditions
+      vulnerability_findings
+      confidence
+      review_required
+    - source_to_sink_conditions must include:
+      sources
+      guards
+      sinks
+      condition_chain
+    - vulnerability_findings must be a JSON array of objects with:
+      type
+      score
+      evidence
+
+    Content to repair:
+    {invalid_content}
+  fields:
+    - invalid_content
+
+source_review:
+  template: |
+    Review the consistency and evidence quality of this structured analysis.
+
+    Scenario: {scenario}
+    old_unit: {old_unit}
+    new_unit: {new_unit}
+
+    [old_code]
+    {old_code}
+
+    [new_code]
+    {new_code}
+
+    [analysis_json]
+    {analysis_json}
+
+    Review rules:
+    - Check whether vulnerability_type matches the visible evidence.
+    - Check whether sources, guards, sinks, and condition_chain are consistent.
+    - Check whether the score matches the strength of evidence.
+    - High-risk vulnerability claims should include concrete source and sink evidence; otherwise require review.
+    - If the result appears speculative or unsupported, set review_required=true and reduce confidence.
+
+    Return exactly one JSON object:
+    {{
+      "review_required": true,
+      "confidence": 0.0,
+      "issues": ["short issue text"]
+    }}
+  fields:
+    - scenario
+    - old_unit
+    - new_unit
+    - old_code
+    - new_code
+    - analysis_json

@@ -1,0 +1,32 @@
+[project]
+name = "source-code-diff-analyzer"
+version = "0.1.0"
+description = "General source diff engine with layered security and change analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "httpx>=0.27.0",
+  "openai>=1.30.0",
+  "PyYAML>=6.0.1"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0"
+]
+
+[project.scripts]
+source-diff-engine = "source_diff_engine.main:main"
+source-diff-skill-run = "sourcecode_diff_skill.scripts.run_skill_diff:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "src"]
+addopts = "-p no:cacheprovider"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["source_diff_engine*", "sourcecode_diff_skill*"]
+
+[tool.setuptools.package-data]
+source_diff_engine = ["llm/prompts.yaml"]
