@@ -319,6 +319,7 @@ def run_directory_analysis(
     checkpoint_data = _load_checkpoint(checkpoint_file) if checkpoint_file else {"version": 1, "completed": {}}
     result_by_key: Dict[str, Dict[str, Any]] = {}
     failed_files: List[Dict[str, Any]] = []
+    not_executed_files: List[Dict[str, Any]] = []
     pending_pairs: List[Dict[str, Any]] = []
     resumed_file_count = 0
     retried_file_count = 0
@@ -363,6 +364,7 @@ def run_directory_analysis(
                 _increment_count(failure_categories, category)
                 failed_files.append(
                     {
+                        "_pair_key": str(item.get("_pair_key", "")),
                         "rel_path": rel_path,
                         "status": str(item.get("status", "")),
                         "failure_category": category,
@@ -425,6 +427,7 @@ def run_directory_analysis(
                     _increment_count(failure_categories, category)
                     failed_files.append(
                         {
+                            "_pair_key": str(item.get("_pair_key", "")),
                             "rel_path": rel_path,
                             "status": str(item.get("status", "")),
                             "failure_category": category,
@@ -464,6 +467,23 @@ def run_directory_analysis(
                     _write_checkpoint(checkpoint_file, checkpoint_data)
         finally:
             executor.shutdown(wait=not fail_fast_triggered, cancel_futures=fail_fast_triggered)
+
+    processed_keys = set(result_by_key) | {
+        str(item.get("_pair_key", ""))
+        for item in failed_files
+        if str(item.get("_pair_key", "")).strip()
+    }
+    if fail_fast_triggered:
+        not_executed_files = [
+            {
+                "rel_path": str(item.get("rel_path", "")),
+                "status": str(item.get("status", "")),
+                "reason": "fail_fast_not_executed",
+            }
+            for item in pending_pairs
+            if str(item.get("_pair_key", "")) not in processed_keys
+        ]
+        not_executed_files.sort(key=lambda row: str(row.get("rel_path", "")))
 
     file_rows: List[Dict[str, Any]] = []
     init_rows: List[Dict[str, Any]] = []
@@ -519,6 +539,9 @@ def run_directory_analysis(
                 "read_error_count": int(((init_report.get("read_summary", {}) or {}).get("read_error_count", 0) or 0)),
             }
         )
+
+    failed_files.sort(key=lambda row: (str(row.get("rel_path", "")), str(row.get("failure_category", ""))))
+    failure_categories = dict(sorted(failure_categories.items()))
 
     by_vuln: Dict[str, int] = {}
     by_change: Dict[str, int] = {}
@@ -651,6 +674,7 @@ def run_directory_analysis(
     )
     runtime["manifest_skipped_files"] = len(manifest_skipped_files)
     runtime["manifest_skipped_by_reason"] = manifest_skipped_by_reason
+    runtime["not_executed_files"] = len(not_executed_files)
     pair_summary = build_directory_pair_summary(
         old_file_count=pair_doc["old_file_count"],
         new_file_count=pair_doc["new_file_count"],
@@ -671,6 +695,7 @@ def run_directory_analysis(
         init_quality=init_quality,
     )
     detailed["skipped_files"] = manifest_skipped_files
+    detailed["not_executed_files"] = not_executed_files
     overview = build_directory_overview(
         total_units=len(all_concise_rows),
         file_rows=file_rows,
@@ -690,6 +715,7 @@ def run_directory_analysis(
             "completed_files": len(file_rows),
             "failed_files": len(failed_files),
             "skipped_files": max(0, int(pair_doc["pair_count"]) - len(pairs)),
+            "not_executed_files": 0,
             "manifest_skipped_files": len(manifest_skipped_files),
             "retried_files": retried_file_count,
             "llm_request_count": int(getattr(getattr(analyzer, "llm", None), "request_count", 0) or 0),
@@ -702,6 +728,9 @@ def run_directory_analysis(
     overview["skipped_files"] = manifest_skipped_files[:200]
     overview["skipped_file_count"] = len(manifest_skipped_files)
     overview["skipped_by_reason"] = manifest_skipped_by_reason
+    overview["not_executed_files"] = not_executed_files[:200]
+    overview["not_executed_file_count"] = len(not_executed_files)
+    overview.setdefault("runtime_metrics", {})["not_executed_files"] = len(not_executed_files)
     init_overview = build_directory_init_overview(
         old_root=pair_doc["old_root"],
         new_root=pair_doc["new_root"],
@@ -739,6 +768,16 @@ def run_directory_analysis(
         if bool(enable_llm_review_pass)
         else []
     )
+    llm_request_count = int(getattr(getattr(analyzer, "llm", None), "request_count", 0) or 0)
+    runtime["llm_request_count"] = llm_request_count
+    metrics = getattr(getattr(analyzer, "llm", None), "metrics", None)
+    metric_values = metrics() if callable(metrics) else {}
+    for key, value in metric_values.items():
+        if key != "request_count":
+            runtime[f"llm_{key}"] = value
+            overview.setdefault("runtime_metrics", {})[f"llm_{key}"] = value
+    overview.setdefault("runtime_metrics", {})["llm_request_count"] = llm_request_count
+    detailed["runtime"] = dict(runtime)
     review_queue_summary = build_review_queue_summary(
         review_score_threshold=review_score_threshold,
         review_top_n=review_top_n,

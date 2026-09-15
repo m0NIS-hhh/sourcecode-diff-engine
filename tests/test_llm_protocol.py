@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from llm_client import OpenCodeLLM
-from source_analyzer import SourceAnalyzer
+from source_diff_engine.llm.client import OpenCodeLLM
+from source_diff_engine.source_analyzer import SourceAnalyzer
 
 
 def test_parse_response_handles_fenced_json_and_normalizes_schema() -> None:

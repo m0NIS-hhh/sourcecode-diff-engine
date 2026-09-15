@@ -1,0 +1,8 @@
+{
+  "language": "python",
+  "file_name": "app.py",
+  "profile": "security",
+  "expected_high_risk_min": 0,
+  "expected_high_risk_max": 0,
+  "forbidden_rule_ids": ["cmdi"]
+}

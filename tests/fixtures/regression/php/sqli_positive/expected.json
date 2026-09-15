@@ -1,0 +1,9 @@
+{
+  "language": "php",
+  "file_name": "app.php",
+  "profile": "security",
+  "expected_high_risk_min": 1,
+  "expected_rule_ids": ["sqli"],
+  "must_review": true,
+  "expected_evidence_status": "partial"
+}

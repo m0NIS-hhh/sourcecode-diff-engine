@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 import json
+import tomllib
+from pathlib import Path
 
-import main
+from source_diff_engine import main
+
+
+def test_pyproject_declares_console_entrypoint_for_standard_cli() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    with (project_root / "pyproject.toml").open("rb") as handle:
+        pyproject = tomllib.load(handle)
+
+    assert pyproject["project"]["scripts"]["source-diff-engine"] == "source_diff_engine.main:main"
 
 
 def test_build_analyzer_from_config_uses_profile_default_llm_mode(monkeypatch) -> None:
@@ -40,7 +50,7 @@ def test_main_doctor_subcommand_routes_to_service(monkeypatch, capsys) -> None:
         [
             "doctor",
             "--config",
-            "config.json.example",
+            "configs/config.example.json",
             "--output-root",
             "out",
             "--smoke-output-root",
@@ -53,7 +63,7 @@ def test_main_doctor_subcommand_routes_to_service(monkeypatch, capsys) -> None:
     out = json.loads(capsys.readouterr().out)
     assert code == 0
     assert out["ok"] is True
-    assert captured["config_path"] == "config.json.example"
+    assert captured["config_path"] == "configs/config.example.json"
     assert captured["output_root"] == "out"
     assert captured["smoke_output_root"] == "smoke_out"
     assert captured["llm_mode"] == "off"
@@ -72,7 +82,7 @@ def test_main_smoke_subcommand_routes_to_service(monkeypatch, capsys) -> None:
         [
             "smoke",
             "--config",
-            "config.json.example",
+            "configs/config.example.json",
             "--output-root",
             "out",
             "--run-id",
@@ -86,7 +96,7 @@ def test_main_smoke_subcommand_routes_to_service(monkeypatch, capsys) -> None:
     out = json.loads(capsys.readouterr().out)
     assert code == 0
     assert out["ok"] is True
-    assert captured["config_path"] == "config.json.example"
+    assert captured["config_path"] == "configs/config.example.json"
     assert captured["output_root"] == "out"
     assert captured["run_id"] == "smoke_case"
     assert captured["language"] == "python"
@@ -160,3 +170,12 @@ def test_main_run_subcommand_routes_directory_mode(monkeypatch, capsys, tmp_path
     assert captured["data_folder"] == str(tmp_path)
     assert captured["old_root"] == "old"
     assert captured["new_root"] == "new"
+
+
+def test_main_reports_missing_config_as_cli_error(monkeypatch, capsys) -> None:
+    code = main.main(["doctor", "--config", "missing-config.json", "--llm-mode", "off"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 1
+    assert output["ok"] is False
+    assert any("Config file not found" in issue for issue in output["issues"])

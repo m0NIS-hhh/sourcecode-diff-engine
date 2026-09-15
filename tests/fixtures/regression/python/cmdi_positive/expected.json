@@ -1,0 +1,9 @@
+{
+  "language": "python",
+  "file_name": "app.py",
+  "profile": "security",
+  "expected_high_risk_min": 1,
+  "expected_rule_ids": ["cmdi"],
+  "must_review": true,
+  "expected_evidence_status": "partial"
+}

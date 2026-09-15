@@ -7,18 +7,19 @@ from pathlib import Path
 
 # Ensure the repository root is importable when the script is executed directly.
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
-from app_service import create_analyzer, ensure_llm_ready
-from config_loader import load_config
-from directory_runner import review_existing_directory_run
+from source_diff_engine.app_service import create_analyzer, ensure_llm_ready
+from source_diff_engine.config_loader import load_config
+from source_diff_engine.directory.runner import review_existing_directory_run
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run LLM review pass for an existing directory-analysis run")
     parser.add_argument("run_root", type=str, help="Path to an existing <output-dir>/<run-id>")
-    parser.add_argument("--config", default="config.json", type=str, help="Config file path")
+    parser.add_argument("--config", default="configs/config.example.json", type=str, help="Config file path")
     parser.add_argument("--review-score-threshold", type=float, default=None, help="Optional score threshold override")
     parser.add_argument("--review-top-n", type=int, default=None, help="Optional top-N override")
     parser.add_argument("--resume", action="store_true", help="Resume from high_risk_review_checkpoint.json if present")

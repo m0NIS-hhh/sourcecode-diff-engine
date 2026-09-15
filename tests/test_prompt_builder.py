@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prompt_builder import PromptBuilder
+from source_diff_engine.llm.prompt_builder import PromptBuilder
 
 
 def test_prompt_builder_builds_active_prompts() -> None:

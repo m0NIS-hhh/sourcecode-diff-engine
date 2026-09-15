@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from llm_client import OpenCodeLLM
+from source_diff_engine.llm.client import OpenCodeLLM
 
 
 class _RetryableError(RuntimeError):
@@ -49,8 +49,8 @@ def test_preflight_retries_retryable_failures(monkeypatch: pytest.MonkeyPatch, s
     calls = {"count": 0}
     sleeps: list[float] = []
 
-    monkeypatch.setattr("llm_client.random.uniform", lambda _a, _b: 0.25)
-    monkeypatch.setattr("llm_client.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("source_diff_engine.llm.client.random.uniform", lambda _a, _b: 0.25)
+    monkeypatch.setattr("source_diff_engine.llm.client.time.sleep", lambda seconds: sleeps.append(seconds))
 
     def fake_try_invoke_once(messages: list[dict[str, str]], style: str) -> str:
         calls["count"] += 1
@@ -67,6 +67,9 @@ def test_preflight_retries_retryable_failures(monkeypatch: pytest.MonkeyPatch, s
     assert calls["count"] == 2
     assert sleeps == [1.25]
     assert llm._resolved_api_style == "chat"
+    assert llm.preflight_request_count == 2
+    assert llm.retry_count == 1
+    assert sum(llm.failure_categories.values()) == 1
 
 
 def test_preflight_falls_through_to_next_style_without_retry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -74,7 +77,7 @@ def test_preflight_falls_through_to_next_style_without_retry(monkeypatch: pytest
     calls: list[str] = []
     sleeps: list[float] = []
 
-    monkeypatch.setattr("llm_client.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("source_diff_engine.llm.client.time.sleep", lambda seconds: sleeps.append(seconds))
 
     def fake_try_invoke_once(_messages: list[dict[str, str]], style: str) -> str:
         calls.append(style)
@@ -96,7 +99,7 @@ def test_preflight_does_not_retry_non_retryable_error(monkeypatch: pytest.Monkey
     calls = {"count": 0}
     sleeps: list[float] = []
 
-    monkeypatch.setattr("llm_client.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("source_diff_engine.llm.client.time.sleep", lambda seconds: sleeps.append(seconds))
 
     def fake_try_invoke_once(_messages: list[dict[str, str]], _style: str) -> str:
         calls["count"] += 1
@@ -119,8 +122,8 @@ def test_invoke_retries_retryable_failure_with_backoff(monkeypatch: pytest.Monke
     sleeps: list[float] = []
     messages = [{"role": "user", "content": "hello"}]
 
-    monkeypatch.setattr("llm_client.random.uniform", lambda _a, _b: 0.25)
-    monkeypatch.setattr("llm_client.time.sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr("source_diff_engine.llm.client.random.uniform", lambda _a, _b: 0.25)
+    monkeypatch.setattr("source_diff_engine.llm.client.time.sleep", lambda seconds: sleeps.append(seconds))
 
     def fake_try_invoke_once(current_messages: list[dict[str, str]], style: str) -> str:
         calls["count"] += 1
@@ -138,6 +141,23 @@ def test_invoke_retries_retryable_failure_with_backoff(monkeypatch: pytest.Monke
     assert calls["count"] == 2
     assert sleeps == [1.25]
     assert llm._resolved_api_style == "chat"
+    assert llm.analysis_request_count == 2
+    assert llm.retry_count == 1
+    assert sum(llm.failure_categories.values()) == 1
+
+
+def test_llm_error_details_are_redacted_and_bounded() -> None:
+    llm = _make_llm()
+    err = llm._classify_error(
+        RuntimeError(
+            "Authorization: Bearer super-secret-token "
+            "api_key=sk-abcdefghijklmnopqrstuvwxyz123456"
+        )
+    )
+    assert "super-secret-token" not in err.detail
+    assert "abcdefghijklmnopqrstuvwxyz" not in err.detail
+    assert "[REDACTED]" in err.detail
+    assert len(err.detail) <= 300
 
 
 def test_classify_connect_error_as_network_blocked() -> None:

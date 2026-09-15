@@ -18,7 +18,7 @@ from source_diff_engine.app_service import (
     review_single_pair,
     smoke as smoke_service,
 )
-from source_diff_engine.config_loader import load_config
+from source_diff_engine.config_loader import DEFAULT_CONFIG_PATH, load_config
 from source_diff_engine.logger_config import get_logger
 
 logger = get_logger(__name__)
@@ -30,7 +30,7 @@ def _print_json(payload: Dict[str, Any]) -> None:
 
 def _build_common_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--config", default="config.json", type=str, help="Config file path")
+    parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, type=str, help="Config file path")
     parser.add_argument("--llm-mode", type=str, default="", help="LLM mode override: off|try|required")
     parser.add_argument("--skip-llm-preflight", action="store_true", help="Skip LLM preflight and attempt live requests directly")
     parser.add_argument("--profile", type=str, default="", help="Analysis profile override")
@@ -268,7 +268,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except (FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
+        parser.error(str(exc))
+        return 2
 
 
 if __name__ == "__main__":

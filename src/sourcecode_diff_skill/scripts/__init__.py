@@ -1,2 +1,0 @@
-"""Skill script entrypoints."""
-

@@ -1,4 +1,4 @@
-﻿from html import escape
+from html import escape
 from urllib.parse import quote
 import re
 def parse_chunk_header(line: str) -> tuple[int, str]:

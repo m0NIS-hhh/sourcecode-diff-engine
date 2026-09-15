@@ -368,6 +368,9 @@ def analyze_diff_units_in_memory(
             security_enabled and part2.get("llm_review_required", False)
         ) or bool(attack_surface_enabled and part3.get("has_new_attack_surface", False) and part3.get("attack_surface_level", "none") in {"medium", "high"})
         review_reasons: List[str] = list(debug.get("review_reasons", [])) if isinstance(debug.get("review_reasons"), list) else []
+        if security_enabled and bool(part2.get("has_new_vulnerability", False)) and _normalize_score_impl(part2.get("score", 0.0), 0.0) >= 7.0:
+            review_required = True
+            review_reasons.append("static_high_risk_security_finding")
         if security_enabled and bool(part2.get("llm_review_required", False)):
             review_reasons.append("llm_security_review_requested")
         if attack_surface_enabled and part3.get("has_new_attack_surface", False) and part3.get("attack_surface_level", "none") in {"medium", "high"}:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from directory_runner import review_existing_directory_run
+from source_diff_engine.directory.runner import review_existing_directory_run
 
 
 def _write(path: Path, text: str) -> None:
@@ -227,3 +227,78 @@ def test_review_existing_directory_run_resumes_from_checkpoint(tmp_path: Path) -
     assert len(results) == 2
     assert any(item["rel_path"] == "a.py" for item in results)
     assert any(item["rel_path"] == "b.py" for item in results)
+
+
+def test_review_existing_directory_run_recovers_from_corrupt_checkpoint(tmp_path: Path) -> None:
+    old_root = tmp_path / "old"
+    new_root = tmp_path / "new"
+    run_root = tmp_path / "outputs" / "run3"
+
+    _write(old_root / "a.py", "def run(request, cursor):\n    return None\n")
+    _write(new_root / "a.py", "def run(request, cursor):\n    sql = request.args.get('sql')\n    cursor.execute(sql)\n")
+    _write_json(
+        run_root / "meta.json",
+        {
+            "schema_version": "3.0",
+            "mode": "directory",
+            "old_root": str(old_root),
+            "new_root": str(new_root),
+        },
+    )
+    _write_json(
+        run_root / "high_risk_review_queue.json",
+        [
+            {
+                "rel_path": "a.py",
+                "unit_index": 0,
+                "artifact": "a.py:1",
+                "risk_score": 8.8,
+                "change_type": "新增代码",
+                "review_required": True,
+                "llm_review_eligible": True,
+            }
+        ],
+    )
+    checkpoint_path = run_root / "high_risk_review_checkpoint.json"
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    checkpoint_path.write_text("{not-json", encoding="utf-8")
+
+    class _CorruptCheckpointAnalyzer:
+        class _LLM:
+            enabled = True
+
+        llm = _LLM()
+
+        @staticmethod
+        def analyze_function_pair(**kwargs):
+            return {
+                "change_type": "new code",
+                "vulnerability_type": "SQL Injection",
+                "vulnerability_score": 9.2,
+                "source_to_sink_conditions": {
+                    "sources": ["request.args['sql']"],
+                    "guards": [],
+                    "sinks": ["cursor.execute(sql)"],
+                    "condition_chain": "request.args -> cursor.execute",
+                },
+                "vulnerability_findings": [
+                    {"type": "SQL Injection", "score": 9.2, "evidence": "fresh review"}
+                ],
+                "confidence": 0.96,
+                "review_required": False,
+            }
+
+    report = review_existing_directory_run(
+        analyzer=_CorruptCheckpointAnalyzer(),
+        run_root=str(run_root),
+        review_score_threshold=7.0,
+        review_top_n=5,
+        resume=True,
+    )
+
+    assert len(report["results"]) == 1
+    saved_checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+    assert saved_checkpoint["selected"] == ["a.py|0|a.py:1"]
+    assert "a.py|0|a.py:1" in saved_checkpoint["completed"]
+    summary = json.loads((run_root / "high_risk_review_summary.json").read_text(encoding="utf-8"))
+    assert summary["checkpoint_status"] == "corrupt_reset"

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from preprocessor import SourcePreprocessor
+from source_diff_engine.preprocess.source_preprocessor import SourcePreprocessor
 
 
 def test_preprocessor_extracts_diff_units(tmp_path: Path) -> None:

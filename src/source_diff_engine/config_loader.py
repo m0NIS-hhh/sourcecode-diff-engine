@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+from copy import deepcopy
+from pathlib import Path
 from typing import Any, Dict, List
 
 from source_diff_engine.analysis.profiles import DEFAULT_ANALYSIS_PROFILE, normalize_analysis_profile
@@ -12,6 +14,27 @@ AUTH_TOKEN_ENVS: List[str] = [
     "OPENAI_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
 ]
+
+DEFAULT_CONFIG_PATH = "configs/config.example.json"
+_DEFAULT_CONFIG: Dict[str, Any] = {
+    "analysis": {"profile": DEFAULT_ANALYSIS_PROFILE},
+    "llm": {
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+        "api_style": "auto",
+        "max_tokens": 4096,
+        "temperature": 0.1,
+        "timeout": 90,
+        "max_retries": 3,
+        "mode": "try",
+        "skip_preflight": False,
+    },
+    "run": {
+        "min_similarity": 0.0,
+        "max_similarity": 1.0,
+        "max_diff_units": 300,
+    },
+}
 
 
 def _env_int(name: str, default: int) -> int:
@@ -47,9 +70,18 @@ def _normalize_llm_mode(value: str) -> str:
     return mode if mode in {"off", "try", "required"} else "try"
 
 
-def load_config(path: str = "config.json") -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
+def load_config(path: str = DEFAULT_CONFIG_PATH) -> Dict[str, Any]:
+    config_path = Path(path)
+    if config_path.is_file():
+        with config_path.open("r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    elif str(path).replace("\\", "/") == DEFAULT_CONFIG_PATH:
+        cfg = deepcopy(_DEFAULT_CONFIG)
+    else:
+        raise FileNotFoundError(
+            f"Config file not found: {path}. "
+            f"Use an existing file or copy {DEFAULT_CONFIG_PATH} to a local config path."
+        )
 
     analysis = cfg.setdefault("analysis", {})
     analysis.setdefault("profile", DEFAULT_ANALYSIS_PROFILE)

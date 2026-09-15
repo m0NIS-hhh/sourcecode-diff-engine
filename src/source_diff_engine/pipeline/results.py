@@ -30,6 +30,17 @@ DEFAULT_S2S = {
 EVIDENCE_STATUS_VALUES = {"not_applicable", "missing", "partial", "observed", "inferred"}
 CHAIN_COMPLETENESS_VALUES = {"not_applicable", "missing", "partial", "complete"}
 INFERENCE_LEVEL_VALUES = {"none", "supplemental", "primary"}
+DEFAULT_EVIDENCE_SUMMARY = {
+    "evidence_status": "missing",
+    "observed_chain_completeness": "missing",
+    "inferred_chain_completeness": "missing",
+    "inference_level": "none",
+    "assessment_basis": "static",
+    "candidate_count": 0,
+    "primary_evidence": "",
+    "review_required": False,
+    "review_reasons": [],
+}
 
 
 def normalize_score(value: Any, default: float = 0.0) -> float:
@@ -111,6 +122,7 @@ def evidence_status(
     vulnerability_type: str,
     observed_s2s: Dict[str, Any],
     inferred_s2s: Dict[str, Any],
+    inferred_origin: str = "",
 ) -> str:
     observed = chain_completeness(observed_s2s)
     inferred = chain_completeness(inferred_s2s)
@@ -152,10 +164,15 @@ def derive_inference_level(
     inferred_s2s: Dict[str, Any],
     reasoning_summary: str,
     confidence: float,
+    inferred_origin: str = "",
 ) -> str:
     observed = chain_completeness(observed_s2s)
     inferred = chain_completeness(inferred_s2s)
-    has_inferred_content = inferred != "missing" or bool(str(reasoning_summary or "").strip()) or float(confidence or 0.0) > 0.0
+    has_inferred_content = (
+        inferred != "missing"
+        or str(inferred_origin or "").strip() == "llm_inference"
+        or (bool(str(reasoning_summary or "").strip()) and float(confidence or 0.0) > 0.0)
+    )
     if not has_inferred_content:
         return "none"
     if observed == "complete":
@@ -306,29 +323,61 @@ def normalize_evidence(value: Any) -> Dict[str, Any]:
     summary_raw = raw.get("convenience_summary", {}) if isinstance(raw.get("convenience_summary"), dict) else {}
     ranked_candidates = dedupe_candidates(ranked_raw)
     primary_candidate = ranked_candidates[0] if ranked_candidates else {}
+    evidence_status = str(
+        summary_raw.get("evidence_status", summary_raw.get("verdict", "")) or ""
+    ).strip()
+    observed_completeness = str(
+        summary_raw.get(
+            "observed_chain_completeness",
+            summary_raw.get("observed_chain_status", ""),
+        )
+        or ""
+    ).strip()
+    inferred_completeness = str(
+        summary_raw.get("inferred_chain_completeness", "") or ""
+    ).strip()
+    inference_level = normalize_inference_level(summary_raw.get("inference_level", ""))
+    assessment = assessment_basis(summary_raw.get("assessment_basis", "static"))
+    observed_s2s = normalize_s2s(observed_raw.get("source_to_sink", {}))
+    inferred_s2s = normalize_s2s(inferred_raw.get("source_to_sink", {}))
+    inferred_origin = str(inferred_raw.get("evidence_origin", "") or "").strip()
+    if inferred_origin not in {"static_analysis", "llm_inference"}:
+        inferred_origin = "static_analysis"
+    if not observed_s2s.get("sources") and not observed_s2s.get("guards") and not observed_s2s.get("sinks") and not observed_s2s.get("condition_chain"):
+        observed_s2s = normalize_s2s(observed_s2s)
     return {
         "observed_facts": {
-            "source_to_sink": normalize_s2s(observed_raw.get("source_to_sink", {})),
+            "source_to_sink": observed_s2s,
+            "evidence_origin": str(observed_raw.get("evidence_origin", "static_analysis") or "static_analysis"),
         },
         "inferred_assessment": {
-            "source_to_sink": normalize_s2s(inferred_raw.get("source_to_sink", {})),
+            "source_to_sink": inferred_s2s,
             "summary": str(inferred_raw.get("summary", "") or ""),
-            "confidence": float(inferred_raw.get("confidence", 0.0) or 0.0),
+            "confidence": normalize_confidence(inferred_raw.get("confidence", 0.0)),
             "reasoning_basis": str(inferred_raw.get("reasoning_basis", "") or ""),
+            "evidence_origin": inferred_origin,
         },
         "ranked_candidates": ranked_candidates,
         "convenience_summary": {
-            "evidence_status": str(summary_raw.get("evidence_status", "") or ""),
-            "observed_chain_completeness": str(summary_raw.get("observed_chain_completeness", "") or ""),
-            "inferred_chain_completeness": str(summary_raw.get("inferred_chain_completeness", "") or ""),
-            "inference_level": normalize_inference_level(summary_raw.get("inference_level", "")),
-            "assessment_basis": str(summary_raw.get("assessment_basis", "") or ""),
+            "evidence_status": evidence_status if evidence_status in EVIDENCE_STATUS_VALUES else "",
+            "observed_chain_completeness": observed_completeness if observed_completeness in CHAIN_COMPLETENESS_VALUES else "",
+            "inferred_chain_completeness": inferred_completeness if inferred_completeness in CHAIN_COMPLETENESS_VALUES else "",
+            "inference_level": inference_level,
+            "assessment_basis": assessment,
             "candidate_count": int(summary_raw.get("candidate_count", len(ranked_candidates)) or 0),
             "primary_evidence": str(summary_raw.get("primary_evidence", primary_candidate.get("evidence", "")) or ""),
             "review_required": bool(summary_raw.get("review_required", False)),
             "review_reasons": normalize_review_reasons(summary_raw.get("review_reasons", [])),
         },
     }
+
+
+def normalize_confidence(value: Any, default: float = 0.0) -> float:
+    try:
+        confidence = float(value)
+    except Exception:
+        confidence = float(default)
+    return max(0.0, min(1.0, confidence))
 
 
 def finalize_evidence(
@@ -346,12 +395,23 @@ def finalize_evidence(
     normalized = normalize_evidence(evidence)
     observed_s2s = normalize_s2s(normalized["observed_facts"].get("source_to_sink", {}))
     inferred_s2s = normalize_s2s(normalized["inferred_assessment"].get("source_to_sink", {}))
-    basis = "inferred" if bool(chain_inferred) else assessment_basis(analysis_backend)
+    existing_inferred_origin = str(
+        normalized["inferred_assessment"].get("evidence_origin", "") or ""
+    ).strip()
+    inferred_origin = (
+        existing_inferred_origin
+        if existing_inferred_origin in {"static_analysis", "llm_inference"}
+        else ("llm_inference" if assessment_basis(analysis_backend) == "llm" and has_complete_s2s(inferred_s2s) else "static_analysis")
+    )
+    basis = "inferred" if bool(chain_inferred) else (
+        "static" if chain_completeness(observed_s2s) == "complete" else assessment_basis(analysis_backend)
+    )
     evidence_summary_status = evidence_status(
         change_type=change_type,
         vulnerability_type=vulnerability_type,
         observed_s2s=observed_s2s,
         inferred_s2s=inferred_s2s,
+        inferred_origin=inferred_origin,
     )
     observed_completeness = "not_applicable" if evidence_summary_status == "not_applicable" else chain_completeness(observed_s2s)
     inferred_completeness = "not_applicable" if evidence_summary_status == "not_applicable" else chain_completeness(inferred_s2s)
@@ -360,15 +420,18 @@ def finalize_evidence(
         inferred_s2s=inferred_s2s,
         reasoning_summary=reasoning_summary,
         confidence=confidence,
+        inferred_origin=inferred_origin,
     )
     ranked_candidates = list(normalized.get("ranked_candidates", []))
     primary_candidate = ranked_candidates[0] if ranked_candidates else {}
     normalized["observed_facts"]["source_to_sink"] = observed_s2s
+    normalized["observed_facts"]["evidence_origin"] = "static_analysis"
     normalized["inferred_assessment"] = {
         "source_to_sink": inferred_s2s,
         "summary": str(reasoning_summary or ""),
-        "confidence": max(0.0, min(1.0, float(confidence))),
-        "reasoning_basis": basis,
+        "confidence": normalize_confidence(confidence),
+        "reasoning_basis": "llm" if inferred_origin == "llm_inference" else "static",
+        "evidence_origin": inferred_origin,
     }
     normalized["convenience_summary"] = {
         "evidence_status": evidence_summary_status,
@@ -426,6 +489,8 @@ def dedupe_candidates(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     seen = set()
     out: List[Dict[str, Any]] = []
     for item in candidates:
+        if not isinstance(item, dict):
+            continue
         vuln_type = str(item.get("vulnerability_type", VULN_PENDING)).strip() or VULN_PENDING
         score = round(normalize_score(item.get("score", 0.0), 0.0), 2)
         support = normalize_candidate_support(item.get("supporting_facts", {}))
@@ -532,14 +597,29 @@ def build_file_summary(unit_rows: List[Dict[str, Any]], analysis_profile: str = 
     primary["behavior_score"] = round(normalize_score(primary.get("behavior_score", primary.get("analysis_score", 0.0)), 0.0), 2)
     primary["attack_surface_score"] = round(normalize_score(primary.get("attack_surface_score", primary.get("analysis_score", 0.0)), 0.0), 2)
 
-    security_fix_units = sum(1 for row in unit_rows if bool(row.get("fix_assessment", {}).get("is_security_fix", False)))
-    new_vulnerability_units = sum(1 for row in unit_rows if bool(row.get("new_vuln_check", {}).get("has_new_vulnerability", False)))
-    new_attack_surface_units = sum(1 for row in unit_rows if bool(row.get("new_attack_surface", {}).get("has_new_attack_surface", False)))
+    security_fix_units = sum(
+        1
+        for row in unit_rows
+        if isinstance(row.get("fix_assessment"), dict)
+        and bool(row["fix_assessment"].get("is_security_fix", False))
+    )
+    new_vulnerability_units = sum(
+        1
+        for row in unit_rows
+        if isinstance(row.get("new_vuln_check"), dict)
+        and bool(row["new_vuln_check"].get("has_new_vulnerability", False))
+    )
+    new_attack_surface_units = sum(
+        1
+        for row in unit_rows
+        if isinstance(row.get("new_attack_surface"), dict)
+        and bool(row["new_attack_surface"].get("has_new_attack_surface", False))
+    )
     review_required_units = sum(
         1
         for row in unit_rows
-        if bool(row.get("fix_assessment", {}).get("review_required", False))
-        or bool(row.get("new_vuln_check", {}).get("llm_review_required", False))
+        if (isinstance(row.get("fix_assessment"), dict) and bool(row["fix_assessment"].get("review_required", False)))
+        or (isinstance(row.get("new_vuln_check"), dict) and bool(row["new_vuln_check"].get("llm_review_required", False)))
     )
     high_risk_unit_count = sum(1 for row in concise_candidates if primary_score(row, profile) >= 7.0)
 

@@ -98,37 +98,39 @@ def build_review_reason(review: Dict[str, Any]) -> str:
 
 
 def build_review_evidence(normalized: Dict[str, Any], row: Dict[str, Any]) -> Dict[str, Any]:
-    observed = normalize_s2s(normalized.get("source_to_sink_conditions", {}))
-    observed_complete = bool(observed.get("sources")) and bool(observed.get("guards")) and bool(observed.get("sinks")) and bool(observed.get("condition_chain"))
-    observed_any = any(observed.get(key) for key in ("sources", "guards", "sinks")) or bool(observed.get("condition_chain"))
+    inferred = normalize_s2s(normalized.get("source_to_sink_conditions", {}))
+    inferred_complete = bool(inferred.get("sources")) and bool(inferred.get("guards")) and bool(inferred.get("sinks")) and bool(inferred.get("condition_chain"))
+    inferred_any = any(inferred.get(key) for key in ("sources", "guards", "sinks")) or bool(inferred.get("condition_chain"))
+    observed = normalize_s2s({})
     findings = normalized.get("vulnerability_findings", []) if isinstance(normalized.get("vulnerability_findings"), list) else []
     ranked_candidates = [
         build_ranked_candidate(
             vulnerability_type=item.get("type", normalized.get("vulnerability_type", "unknown")),
             score=item.get("score", normalized.get("vulnerability_score", 0.0)),
             evidence=item.get("evidence", ""),
-            supporting_source_to_sink=observed,
-            support_status="observed",
-            support_inference_level="none",
+            supporting_source_to_sink=inferred,
+            support_status="inferred" if inferred_complete else ("partial" if inferred_any else "missing"),
+            support_inference_level="primary",
         )
         for item in findings
         if isinstance(item, dict)
     ]
     return {
-        "observed_facts": {"source_to_sink": observed},
+        "observed_facts": {"source_to_sink": observed, "evidence_origin": "static_analysis"},
         "inferred_assessment": {
-            "source_to_sink": observed,
+            "source_to_sink": inferred,
             "summary": str((ranked_candidates[0].get("evidence", "") if ranked_candidates else "")),
             "confidence": float(normalized.get("confidence", row.get("confidence", 0.0)) or 0.0),
             "reasoning_basis": str(normalized.get("analysis_backend", row.get("analysis_backend", "llm")) or "llm"),
+            "evidence_origin": "llm_inference",
         },
         "ranked_candidates": ranked_candidates,
         "convenience_summary": {
-            "evidence_status": "observed" if observed_complete else ("partial" if observed_any else "missing"),
-            "observed_chain_completeness": "complete" if observed_complete else ("partial" if observed_any else "missing"),
-            "inferred_chain_completeness": "complete" if observed_complete else ("partial" if observed_any else "missing"),
-            "inference_level": "none",
-            "assessment_basis": str(normalized.get("analysis_backend", row.get("analysis_backend", "llm")) or "llm"),
+            "evidence_status": "inferred" if inferred_complete else ("partial" if inferred_any else "missing"),
+            "observed_chain_completeness": "missing",
+            "inferred_chain_completeness": "complete" if inferred_complete else ("partial" if inferred_any else "missing"),
+            "inference_level": "primary",
+            "assessment_basis": "llm",
             "candidate_count": len(ranked_candidates),
             "primary_evidence": str((ranked_candidates[0].get("evidence", "") if ranked_candidates else "")),
             "review_required": bool(normalized.get("review_required", row.get("review_required", True))),
@@ -200,6 +202,7 @@ def run_high_risk_review_pass(
             old_symbol_context=unit.get("old_symbol_context"),
             new_symbol_context=unit.get("new_symbol_context"),
             analysis_profile=analysis_profile,
+            operation="llm review pass",
         )
         normalized = SourceAnalyzer._normalize_schema(row)
         verdict = str(normalized.get("vulnerability_type", "")).strip() or "unknown"
@@ -268,14 +271,24 @@ def review_existing_directory_run(
     top_n = None if review_top_n is None else max(0, int(review_top_n))
     checkpoint_path = root / "high_risk_review_checkpoint.json"
     checkpoint: Dict[str, Any] = {"version": 1, "selected": [], "completed": {}}
+    checkpoint_status = "not_requested"
+    if resume:
+        checkpoint_status = "missing_initialized"
     if resume and checkpoint_path.exists():
         try:
             loaded = json.loads(checkpoint_path.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
+            if (
+                isinstance(loaded, dict)
+                and isinstance(loaded.get("selected", []), list)
+                and isinstance(loaded.get("completed", {}), dict)
+            ):
                 checkpoint["selected"] = loaded.get("selected", [])
                 checkpoint["completed"] = loaded.get("completed", {})
+                checkpoint_status = "loaded"
+            else:
+                checkpoint_status = "corrupt_reset"
         except Exception:
-            checkpoint = {"version": 1, "selected": [], "completed": {}}
+            checkpoint_status = "corrupt_reset"
 
     selected: List[Dict[str, Any]] = []
     for entry in queue:
@@ -299,6 +312,7 @@ def review_existing_directory_run(
         selected = selected[:top_n]
     selected_keys = [review_item_key(entry) for entry in selected]
     checkpoint["selected"] = selected_keys
+    write_json_atomic(checkpoint_path, checkpoint)
 
     if not bool(getattr(analyzer.llm, "enabled", False)):
         raise RuntimeError("LLM is disabled; cannot execute review pass")
@@ -332,6 +346,7 @@ def review_existing_directory_run(
             old_symbol_context=unit.get("old_symbol_context"),
             new_symbol_context=unit.get("new_symbol_context"),
             analysis_profile=analysis_profile,
+            operation="llm review pass",
         )
         normalized = SourceAnalyzer._normalize_schema(row)
         review_evidence = build_review_evidence(normalized, row)
@@ -350,7 +365,7 @@ def review_existing_directory_run(
             }
         )
         completed[item_key] = results[-1]
-        checkpoint_path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_json_atomic(checkpoint_path, checkpoint)
 
     results.sort(
         key=lambda x: (float(x.get("risk_score", 0.0)), float(x.get("llm_confidence", 0.0)), str(x.get("rel_path", "")), int(x.get("unit_index", 0))),
@@ -365,6 +380,7 @@ def review_existing_directory_run(
             "completed_count": len(results),
             "score_threshold": threshold,
             "top_n": top_n,
+            "checkpoint_status": checkpoint_status,
         },
     )
     return {"run_root": str(root), "selected": selected, "results": results}

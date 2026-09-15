@@ -1,148 +1,99 @@
 # Source Diff Engine
 
-Source Diff Engine 是一个源代码 diff 分析工具。它面向审计辅助场景：给定 old/new 文件或目录，提取变更单元，评估变更影响、安全风险、新增攻击面，并输出需要人工复核的高风险队列。
+Source Diff Engine 是一个独立的源码 diff 审计系统。它接收 old/new 文件或目录，提取可追踪的变更单元，分析行为影响、安全风险和攻击面变化，并输出稳定的 JSON/Markdown 结果供人工复核或后续自动化使用。
 
-默认策略是静态分析优先，LLM 只作为可选复核能力。工具不会自动证明漏洞成立，输出结果应作为人工审计线索。
+系统支持 Python、Java 和 PHP。静态分析始终是基础能力；LLM 只作为可选后端，不能覆盖或删除静态证据。结果是审计线索，不等同于漏洞确认或 CVSS 评分。
 
-## 核心分析逻辑
+## 运行入口
 
-分析流程分为三部分：
-
-1. 判断修改是否为漏洞修复。
-   如果变更是内存泄露、后台 bug、性能调优等与安全无关的内容，不深入做安全链路分析，评分为 0-2 分。  
-   如果变更表现为安全漏洞修复，例如增加过滤、限制输入长度、增加认证条件、删除危险函数或危险代码，则进入安全复核，评分为 5-10 分，并给出完整的 source -> guard -> sink 条件链。
-
-2. 判断新增代码是否引入新漏洞。
-   对新增代码中的 source、sink、guard、条件链进行识别，输出潜在漏洞类型、风险分数、证据和人工复核建议。
-
-3. 判断新增代码是否带来新增攻击面。
-   先识别新增对象，例如文件、函数、接口、命令处理器、配置入口或业务功能，再评估是否形成新的可达入口、权限边界变化或潜在漏洞面。
-
-## 安装
+项目根目录中的 `main.py` 是日常使用入口。通常不需要重复填写 `--config`，默认配置为
+`configs/config.example.json`：
 
 ```powershell
-pip install -r requirements.txt
+python main.py doctor --llm-mode off
+python main.py smoke --llm-mode off
+python main.py run tests/fixtures/basic --old_file old.py --new_file new.py --llm-mode off
 ```
 
-或安装为命令行工具：
+目录 diff 示例：
 
 ```powershell
-pip install .
+python main.py run . `
+  --old_root old_src --new_root new_src --language auto `
+  --workers 4 --retry-failed-files 1 --llm-mode off
 ```
 
-安装后可使用 `source-diff-engine`。未安装时也可以直接运行 `python main.py`。
+`python -m source_diff_engine.main ...` 是内部和自动化入口，适合测试包结构、从其他目录调用，
+或在已经配置 `PYTHONPATH` / 已安装包的环境中使用：
 
-固定测试样例位于 `tests/fixtures/basic`。根目录下的 `test_projects` 仅作为旧命令兼容样例保留，不再作为测试 fixture 主入口。
+```powershell
+python -m source_diff_engine.main doctor --llm-mode off
+```
 
-## LLM 配置
+`source-diff-engine` console entrypoint 可以保留作为便利入口，但不是项目的主要使用方式。
 
-密钥按优先级从以下环境变量读取：
+## 配置
+
+配置样例位于 `configs/config.example.json`。不提供 `--config` 时，CLI 和服务层默认使用该文件。真实配置可复制到本地路径，但不要提交 `config.json`、令牌或其他密钥。
+
+LLM 密钥只从显式配置或以下环境变量读取：
 
 ```powershell
 $env:LLM_API_KEY = "your-token"
-# or
-$env:OPENAI_API_KEY = "your-token"
-# or
-$env:ANTHROPIC_AUTH_TOKEN = "your-token"
+# 或 OPENAI_API_KEY / ANTHROPIC_AUTH_TOKEN
 ```
-
-其他参数如 `base_url`、`model`、`api_style` 可在 `config.json` 中配置。发布和测试时应使用 `config.json.example`，不要提交本地真实配置。
 
 LLM 模式：
 
-- `off`: 完全静态分析。
-- `try`: 尝试 LLM 预检，失败则回退静态分析。
-- `required`: LLM 预检失败即报错。
+- `off`：完全离线静态分析。
+- `try`：尝试调用 LLM，失败时保留静态结果并回退。
+- `required`：LLM 预检或调用失败时返回错误。
 
-## 命令
+分析 profile 包括 `generic`、`security`、`security-strict`、`api-surface` 和 `behavior-review`。显式 `--llm-mode` 会覆盖 profile 的默认模式。
 
-Skill 包装入口会自动生成或使用 run id、执行分析、执行输出一致性校验，并写出适合 Codex 读取的 `codex_summary.json`：
+## 运行
 
-```bash
-python scripts/run_skill_diff.py --data-folder tests/fixtures/basic --old-file old.py --new-file new.py --language auto --profile security --llm-mode off
-python scripts/run_skill_diff.py --data-folder . --old-root old_src --new-root new_src --language auto --profile security --llm-mode try
+单文件 diff：
+
+```powershell
+python main.py run tests/fixtures/basic `
+  --old_file old.py --new_file new.py --language auto --llm-mode off
 ```
 
-安装 console entrypoint 后也可以使用：
+目录模式支持扩展名、目录和 glob 过滤，文件大小限制，并提供 checkpoint、resume、失败重试、并发执行和质量门禁。高风险 review pass 需要显式启用，不会自动运行。
 
-```bash
-source-diff-skill-run --data-folder tests/fixtures/basic --old-file old.py --new-file new.py --language auto --profile security --llm-mode off
-```
+环境检查和离线 smoke：
 
-单文件分析：
-
-```bash
-python main.py run tests/fixtures/basic --old_file old.py --new_file new.py --language auto
-python main.py run tests/fixtures/basic --old_file old.java --new_file new.java --language java
-python main.py run tests/fixtures/basic --old_file old.php --new_file new.php --language php
-```
-
-目录分析：
-
-```bash
-python main.py run . --old_root old_src --new_root new_src --language auto
-python main.py run . --old_root old_src --new_root new_src --language auto --output-root artifacts/outputs --run-id demo_run
-```
-
-目录模式默认只收集 `.py`、`.java`、`.php`，并跳过 `.git`、`node_modules`、`target`、`build`、`dist`、`.venv`、`vendor`、`__pycache__` 等目录，以及二进制文件、常见生成文件和超过 1 MiB 的文件。可通过以下参数调整：
-
-```bash
-python main.py run . --old_root old_src --new_root new_src --include-ext .py --include-ext .java --exclude-dir vendor --exclude-glob "*.generated.java" --max-file-size-bytes 2097152
-```
-
-环境诊断：
-
-```bash
-python main.py doctor --config config.json.example --llm-mode off
-```
-
-离线 smoke：
-
-```bash
-python main.py smoke --config config.json.example --llm-mode off
+```powershell
+python main.py doctor --llm-mode off
+python main.py smoke --llm-mode off --output-root .tmp/smoke --run-id current
 ```
 
 ## 输出
 
-每次运行写入 `<output-root>/<run-id>/`。常见顶层产物：
+每次运行写入 `<output-root>/<run-id>/`。稳定的顶层结果包括：
 
-- `meta.json`
-- `summary.json`
-- `summary.md`
-- `results.json`
-- `detailed.json`
-- `overview.json`
-- `init_overview.json`
-- `failed_pairs.json`
+- `summary.json`、`summary.md`
+- `overview.json`、`detailed.json`
 - `high_risk_index.json`
-- `codex_summary.json`，仅由 `scripts/run_skill_diff.py` 包装入口生成
+- `failed_pairs.json`
+- `meta.json`
 
-逐文件产物位于 `pairs/<relative-path>/`，包括 `summary.json`、`results.json`、`units.json` 和 `diff.patch`。
+目录运行还会记录跳过文件、失败文件、分析质量、checkpoint 和高风险复核队列。逐文件结果位于 `pairs/` 下。输出协议当前为 schema 3.0，核心字段包含 `primary_conclusion`、`analysis_axes`、`change_intent`、`behavioral_impact`、`interface_impact`、`security_impact`、`attack_surface_impact` 和 `evidence`。
 
-目录模式的 `overview.json`、`init_overview.json` 和 `detailed.json` 会记录 `skipped_files`、`skipped_file_count`、`skipped_by_reason`，用于区分扩展名未包含、排除目录、排除 glob、大文件、二进制文件等 skip reason。
+校验已有运行结果：
 
-`summary.md` 面向人工快速浏览，会汇总分析质量、文件和单元数量、高风险单元、解码/读取问题、跳过文件原因，以及高风险复核队列规模。
+```powershell
+python scripts/verify_run_consistency.py .tmp/smoke/current
+```
 
-当前输出契约使用 `schema_version = 3.0`。稳定字段包括 `primary_conclusion`、`analysis_axes`、`change_intent`、`behavioral_impact`、`interface_impact`、`security_impact`、`attack_surface_impact` 和 `evidence`。
-
-## 验证
+## 开发与限制
 
 运行测试：
 
-```bash
+```powershell
 pytest -q
+python -m compileall src tests scripts
 ```
 
-验证一次 smoke 输出的一致性：
-
-```bash
-python main.py smoke --config config.json.example --llm-mode off --output-root artifacts/assessment --run-id smoke_assessment
-python scripts/verify_run_consistency.py artifacts/assessment/smoke_assessment
-```
-
-## Profile 与默认 LLM 策略
-
-- `generic` / `api-surface` / `behavior-review` 默认 `llm_mode=off`
-- `security` 默认 `llm_mode=try`
-- `security-strict` 默认 `llm_mode=required`
-- 显式传入 `--llm-mode` 时优先级最高，会覆盖 profile 默认值。
+当前静态分析重点是 source、guard、sink 和条件链证据。`observed`、`inferred`、`partial`、`missing` 等证据状态应结合上下文理解；单独命中 sink 不代表确认漏洞。跨函数、跨文件和 AST 级分析仍是后续增强方向。

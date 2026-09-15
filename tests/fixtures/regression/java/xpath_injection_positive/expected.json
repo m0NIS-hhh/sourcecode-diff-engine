@@ -1,0 +1,9 @@
+{
+  "language": "java",
+  "file_name": "XmlController.java",
+  "profile": "security",
+  "expected_high_risk_min": 1,
+  "expected_rule_ids": ["xpath_injection"],
+  "must_review": true,
+  "expected_evidence_status": "partial"
+}

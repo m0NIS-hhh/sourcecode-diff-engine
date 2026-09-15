@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from directory_manifest import build_directory_pairs, build_file_manifest_with_skips
+from source_diff_engine.directory.manifest import build_directory_pairs, build_file_manifest_with_skips
 
 
 def test_manifest_records_skip_reasons(tmp_path: Path) -> None:

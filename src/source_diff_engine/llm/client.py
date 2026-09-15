@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import re
 import socket
 import time
 from dataclasses import dataclass
@@ -47,6 +48,12 @@ class OpenCodeLLM:
         self._resolved_api_style: Optional[str] = None
         self.disabled_reason: str = ""
         self.request_count: int = 0
+        self.preflight_request_count: int = 0
+        self.analysis_request_count: int = 0
+        self.source_review_request_count: int = 0
+        self.review_pass_request_count: int = 0
+        self.retry_count: int = 0
+        self.failure_categories: Dict[str, int] = {}
         self.client: Any = None
         self.last_error_info: Optional[LLMErrorInfo] = None
         if self.api_key:
@@ -76,7 +83,7 @@ class OpenCodeLLM:
     @classmethod
     def _classify_error(cls, exc: Exception) -> LLMErrorInfo:
         status = cls._extract_status_code(exc)
-        message = str(exc).strip() or exc.__class__.__name__
+        message = cls._sanitize_error_detail(str(exc).strip() or exc.__class__.__name__)
         lowered = message.lower()
         retryable = False
         category = "unknown"
@@ -126,6 +133,36 @@ class OpenCodeLLM:
             status_code=status,
             retryable=retryable,
         )
+
+    @staticmethod
+    def _sanitize_error_detail(detail: str, limit: int = 300) -> str:
+        text = str(detail or "").strip()
+        text = re.sub(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", text)
+        text = re.sub(r"(?i)(api[-_ ]?key|authorization|token)(\s*[:=]\s*)\S+", r"\1\2[REDACTED]", text)
+        text = re.sub(r"sk-[A-Za-z0-9_-]{12,}", "sk-[REDACTED]", text)
+        return text[:limit]
+
+    def metrics(self) -> Dict[str, Any]:
+        return {
+            "request_count": int(self.request_count),
+            "preflight_request_count": int(self.preflight_request_count),
+            "analysis_request_count": int(self.analysis_request_count),
+            "source_review_request_count": int(self.source_review_request_count),
+            "review_pass_request_count": int(self.review_pass_request_count),
+            "retry_count": int(self.retry_count),
+            "failure_categories": dict(sorted(self.failure_categories.items())),
+        }
+
+    def _record_operation_request(self, operation: str) -> None:
+        name = str(operation or "").strip().lower()
+        if "preflight" in name:
+            self.preflight_request_count += 1
+        elif "source review" in name:
+            self.source_review_request_count += 1
+        elif "review pass" in name:
+            self.review_pass_request_count += 1
+        else:
+            self.analysis_request_count += 1
 
     @classmethod
     def _is_retryable(cls, exc: Exception) -> bool:
@@ -336,6 +373,7 @@ class OpenCodeLLM:
                 )
                 try:
                     self.request_count += 1
+                    self._record_operation_request(operation)
                     result = call(style)
                     elapsed = time.time() - attempt_start
                     logger.info(
@@ -351,6 +389,7 @@ class OpenCodeLLM:
                     last_exc = exc
                     err = self._classify_error(exc)
                     self.last_error_info = err
+                    self.failure_categories[err.category] = self.failure_categories.get(err.category, 0) + 1
                     if err.retryable:
                         saw_retryable = True
                     logger.warning(
@@ -367,6 +406,7 @@ class OpenCodeLLM:
                 break
             if attempt_index >= self.request_retries or not saw_retryable:
                 raise last_exc
+            self.retry_count += 1
             time.sleep(self._retry_delay_seconds(attempt_index))
         if last_exc is not None:
             raise last_exc
@@ -404,12 +444,12 @@ class OpenCodeLLM:
             raise RuntimeError(f"LLM preflight failed [{err.category}] for model={self.model}: {err.detail}") from exc
         self._resolved_api_style = style
 
-    def invoke(self, messages: List[Dict[str, str]]) -> str:
+    def invoke(self, messages: List[Dict[str, str]], operation: str = "llm request") -> str:
         if not self.client:
             raise RuntimeError("LLM client disabled: missing API key")
 
         content, style = self._run_with_style_retries(
-            operation="llm request",
+            operation=operation,
             styles=self._candidate_styles(prefer_resolved=True),
             call=lambda current_style: self._try_invoke_once(messages, current_style),
         )

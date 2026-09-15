@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from source_analyzer import SourceAnalyzer
+from source_diff_engine.source_analyzer import SourceAnalyzer
 
 
 def test_normalize_schema_accepts_prompt_contract_vulnerability_types() -> None:

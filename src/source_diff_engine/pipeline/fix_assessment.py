@@ -236,10 +236,18 @@ def security_fix_with_llm(
     primary_score = max(5.0, normalize_score(primary.get("score", 5.0), 5.0))
     primary["score"] = round(primary_score, 2)
 
-    s2s = normalize_s2s(normalized.get("source_to_sink_conditions", {}))
+    llm_s2s = normalize_s2s(normalized.get("source_to_sink_conditions", {}))
+    static_s2s = normalize_s2s(
+        infer_s2s_from_fix(
+            unit,
+            language=str(unit.get("language", "python")),
+            intent=intent,
+        )
+    )
+    s2s = llm_s2s
     chain_inferred = False
     if not has_complete_s2s(s2s):
-        s2s = infer_s2s_from_fix(unit, language=str(unit.get("language", "python")), intent=intent)
+        s2s = static_s2s
         chain_inferred = True
 
     resolved_type = str(primary.get("type", "")).strip() or VULN_HARDENING
@@ -253,13 +261,15 @@ def security_fix_with_llm(
         "vulnerability_score": round(max(5.0, min(10.0, primary_score)), 2),
         "evidence": {
             "observed_facts": {
-                "source_to_sink": normalize_s2s(normalized.get("source_to_sink_conditions", {})),
+                "source_to_sink": static_s2s,
+                "evidence_origin": "static_analysis",
             },
             "inferred_assessment": {
                 "source_to_sink": s2s,
                 "summary": str(primary.get("evidence", "") or ""),
                 "confidence": float(row.get("confidence", 0.7) or 0.7),
                 "reasoning_basis": backend,
+                "evidence_origin": "llm_inference" if has_complete_s2s(llm_s2s) else "static_analysis",
             },
             "ranked_candidates": [
                 build_ranked_candidate(

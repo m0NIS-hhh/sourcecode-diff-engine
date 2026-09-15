@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from analysis_tools import build_local_context
+from source_diff_engine.analysis.tools import build_local_context
 
 
 def test_build_local_context_exposes_richer_python_signals() -> None:

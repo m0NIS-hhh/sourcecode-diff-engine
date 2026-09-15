@@ -140,6 +140,7 @@ class SourceAnalyzer:
         old_symbol_context: Optional[Dict[str, Any]] = None,
         new_symbol_context: Optional[Dict[str, Any]] = None,
         analysis_profile: str = DEFAULT_ANALYSIS_PROFILE,
+        operation: str = "llm analysis",
     ) -> Dict[str, Any]:
         fallback = {
             "old_unit": old_unit,
@@ -197,16 +198,17 @@ class SourceAnalyzer:
             {"role": "user", "content": prompt},
         ]
         try:
-            content = self.llm.invoke(messages)
+            content = self._invoke_llm(messages, operation=operation)
             parsed = self._parse_response(content)
             retries = 0
             while not parsed["valid"] and retries < self.max_schema_retries:
                 repair_prompt = self._build_repair_prompt(content)
-                repaired = self.llm.invoke(
+                repaired = self._invoke_llm(
                     [
                         {"role": "system", "content": "Return exactly one valid JSON object and nothing else."},
                         {"role": "user", "content": repair_prompt},
-                    ]
+                    ],
+                    operation=f"{operation} repair",
                 )
                 content = repaired
                 parsed = self._parse_response(repaired)
@@ -250,9 +252,10 @@ class SourceAnalyzer:
             parsed.pop("valid", None)
             return parsed
         except Exception as exc:
-            logger.exception("llm analysis failed: old_unit=%s new_unit=%s similarity=%.4f", old_unit, new_unit, similarity)
-            fallback["error"] = str(exc)
-            fallback["ai_analysis_raw"] = {"error": str(exc)}
+            safe_detail = self.llm._sanitize_error_detail(str(exc))
+            logger.error("llm analysis failed: category=%s detail=%s", getattr(self.llm.last_error_info, "category", "unknown"), safe_detail)
+            fallback["error"] = safe_detail
+            fallback["ai_analysis_raw"] = {"error": safe_detail}
             fallback["analysis_reason"] = "llm_runtime_failed"
             return fallback
 
@@ -288,11 +291,12 @@ class SourceAnalyzer:
                 new_code=new_code,
                 analysis_json=json.dumps(analysis, ensure_ascii=False),
             )
-            resp = self.llm.invoke(
+            resp = self._invoke_llm(
                 [
                     {"role": "system", "content": "You are a strict reviewer. Return JSON only."},
                     {"role": "user", "content": prompt},
-                ]
+                ],
+                operation="llm source review",
             )
             raw = self._extract_json_object(resp)
             data = json.loads(raw)
@@ -309,8 +313,16 @@ class SourceAnalyzer:
                 "issues": [str(x) for x in data.get("issues", [])][:10] if isinstance(data.get("issues"), list) else [],
             }
         except Exception as exc:
-            logger.warning("source_review failed: %s", exc)
+            logger.warning("source_review failed: %s", self.llm._sanitize_error_detail(str(exc)))
             return {"review_required": True, "confidence": 0.5, "issues": ["source_review \u5931\u8d25\uff0c\u5efa\u8bae\u4eba\u5de5\u590d\u6838"]}
+
+    def _invoke_llm(self, messages: List[Dict[str, str]], operation: str) -> str:
+        try:
+            return self.llm.invoke(messages, operation=operation)
+        except TypeError as exc:
+            if "operation" not in str(exc):
+                raise
+            return self.llm.invoke(messages)
 
     @staticmethod
     def _normalize_score_scale(value: Any, default: float = 0.0) -> float:

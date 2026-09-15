@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from config_loader import AUTH_TOKEN_ENVS, load_config
+from source_diff_engine.config_loader import AUTH_TOKEN_ENVS, load_config
 
 
 def test_load_config_prefers_llm_api_key_env(tmp_path: Path, monkeypatch) -> None:
@@ -41,3 +41,15 @@ def test_load_config_ignores_api_key_when_env_missing(tmp_path: Path, monkeypatc
     cfg = load_config(str(cfg_path))
     assert cfg["llm"]["api_key"] == ""
     assert cfg["llm"]["api_key_env"] == ""
+
+
+def test_load_config_uses_embedded_defaults_when_sample_is_not_in_cwd(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    for env_name in AUTH_TOKEN_ENVS:
+        monkeypatch.delenv(env_name, raising=False)
+
+    cfg = load_config()
+
+    assert cfg["analysis"]["profile"] == "generic"
+    assert cfg["run"]["max_diff_units"] == 300
+    assert cfg["llm"]["api_key"] == ""

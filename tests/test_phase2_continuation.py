@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from analysis_pipeline import CHANGE_SECURITY_FIX, _detect_added_scope, analyze_diff_units_in_memory, assess_added_risk
+from source_diff_engine.analysis.pipeline import CHANGE_SECURITY_FIX, _detect_added_scope, analyze_diff_units_in_memory, assess_added_risk
 
 
 class _LLMEnabled:

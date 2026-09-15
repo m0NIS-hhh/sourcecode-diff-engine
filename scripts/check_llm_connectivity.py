@@ -6,16 +6,17 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
-from config_loader import load_config
-from llm_client import OpenCodeLLM
+from source_diff_engine.config_loader import load_config
+from source_diff_engine.llm.client import OpenCodeLLM
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Diagnose LLM connectivity and provider compatibility")
-    parser.add_argument("--config", default="config.json", type=str, help="Config file path")
+    parser.add_argument("--config", default="configs/config.example.json", type=str, help="Config file path")
     parser.add_argument("--skip-models-check", action="store_true", help="Skip models.list during preflight")
     args = parser.parse_args()
 

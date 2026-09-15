@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from output_writer import (
+from source_diff_engine.output.writer import (
     build_high_risk_index_entries,
     build_file_result_explanation,
     build_run_summary,
@@ -13,6 +13,7 @@ from output_writer import (
     write_json_atomic,
     write_text_atomic,
 )
+from source_diff_engine.output.schema import build_top_risky_file_entry
 
 
 def test_normalize_run_id_strips_invalid_chars() -> None:
@@ -51,6 +52,12 @@ def test_build_run_summary_and_markdown() -> None:
             "llm_preflight": "failed_fallback_static",
             "llm_error_category": "network_blocked",
             "llm_fallback_reason": "connection refused",
+            "llm_preflight_request_count": 1,
+            "llm_analysis_request_count": 2,
+            "llm_source_review_request_count": 1,
+            "llm_review_pass_request_count": 0,
+            "llm_retry_count": 1,
+            "llm_failure_categories": {"network_blocked": 1},
         },
         overview={
             "analysis_quality": "valid",
@@ -71,6 +78,8 @@ def test_build_run_summary_and_markdown() -> None:
         top_risky_files=[{"rel_path": "a.py", "risk_score": 8.2, "vulnerability_type": "cmdi"}],
     )
     assert summary["llm_error_category"] == "network_blocked"
+    assert summary["llm_analysis_request_count"] == 2
+    assert summary["llm_failure_categories"] == {"network_blocked": 1}
     assert summary["skipped_file_count"] == 3
     assert summary["skipped_by_reason"] == {"binary_file": 1, "excluded_dir": 2}
     assert summary["review_queue"]["queued_count"] == 1
@@ -182,3 +191,14 @@ def test_build_high_risk_index_entries_are_unit_level() -> None:
     assert entries[0]["unit_index"] == 0
     assert entries[0]["artifact"] == "a.py:2"
     assert entries[0]["new_enclosing_symbol"] == "Runner.run"
+
+
+def test_top_risky_file_entry_preserves_profile_selected_risk_score() -> None:
+    entry = build_top_risky_file_entry(
+        rel_path="a.py",
+        language="python",
+        status="modified",
+        risk_score=6.4,
+        unit_count=1,
+    )
+    assert entry["risk_score"] == 6.4

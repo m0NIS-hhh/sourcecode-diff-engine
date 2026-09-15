@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from directory_runner import _analyze_pair, _prioritize_pairs_for_sampling, _resolve_language, run_directory_analysis
-from source_analyzer import SourceAnalyzer
+from source_diff_engine.directory.runner import _analyze_pair, _prioritize_pairs_for_sampling, _resolve_language, run_directory_analysis
+from source_diff_engine.source_analyzer import SourceAnalyzer
 
 
 def _build_analyzer() -> SourceAnalyzer:
@@ -163,9 +163,9 @@ def test_analyze_pair_uses_resolved_language_for_preprocessor(monkeypatch) -> No
                 "init_report": {},
             }
 
-    monkeypatch.setattr("directory_runner.SourcePreprocessor", _FakePreprocessor)
+    monkeypatch.setattr("source_diff_engine.directory.runner.SourcePreprocessor", _FakePreprocessor)
     monkeypatch.setattr(
-        "directory_runner.analyze_diff_units_in_memory",
+        "source_diff_engine.directory.runner.analyze_diff_units_in_memory",
         lambda **kwargs: {
             "concise_rows": [],
             "overview": {},
@@ -202,7 +202,7 @@ def test_analyze_pair_builds_symbol_context_for_added_file(monkeypatch, tmp_path
             "detailed_doc": {"units": [], "file_summary": {}},
         }
 
-    monkeypatch.setattr("directory_runner.analyze_diff_units_in_memory", fake_analyze_diff_units_in_memory)
+    monkeypatch.setattr("source_diff_engine.directory.runner.analyze_diff_units_in_memory", fake_analyze_diff_units_in_memory)
 
     _analyze_pair(
         analyzer=_build_analyzer(),
@@ -243,7 +243,7 @@ def test_analyze_pair_builds_fallback_symbol_context_for_whole_added_java_file(m
             "detailed_doc": {"units": [], "file_summary": {}},
         }
 
-    monkeypatch.setattr("directory_runner.analyze_diff_units_in_memory", fake_analyze_diff_units_in_memory)
+    monkeypatch.setattr("source_diff_engine.directory.runner.analyze_diff_units_in_memory", fake_analyze_diff_units_in_memory)
 
     _analyze_pair(
         analyzer=_build_analyzer(),
@@ -268,7 +268,7 @@ def test_analyze_pair_reports_real_added_line_count_for_synthetic_added_file(mon
     new_file.write_text("def run(cmd):\n    return cmd\n\nprint(run('x'))\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "directory_runner.analyze_diff_units_in_memory",
+        "source_diff_engine.directory.runner.analyze_diff_units_in_memory",
         lambda **kwargs: {
             "concise_rows": [],
             "overview": {},
@@ -298,7 +298,7 @@ def test_analyze_pair_reports_real_deleted_line_count_for_synthetic_removed_file
     old_file.write_text("<?php\nfunction run($cmd) {\n    return $cmd;\n}\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "directory_runner.analyze_diff_units_in_memory",
+        "source_diff_engine.directory.runner.analyze_diff_units_in_memory",
         lambda **kwargs: {
             "concise_rows": [],
             "overview": {},
@@ -325,8 +325,8 @@ def test_analyze_pair_reports_real_deleted_line_count_for_synthetic_removed_file
 
 def test_directory_runner_supports_limits_and_resume(monkeypatch) -> None:
     out_root, run_id, cp = _output_paths("dir_resume")
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
     memory_cp: dict = {"version": 1, "completed": {}}
     memory_ov: dict = {}
 
@@ -343,15 +343,15 @@ def test_directory_runner_supports_limits_and_resume(monkeypatch) -> None:
             memory_ov.clear()
             memory_ov.update(json.loads(json.dumps(data)))
 
-    monkeypatch.setattr("directory_runner._load_checkpoint", fake_load_checkpoint)
-    monkeypatch.setattr("directory_runner._write_checkpoint", fake_write_checkpoint)
-    monkeypatch.setattr("directory_runner.write_json_atomic", fake_write_json)
-    monkeypatch.setattr("directory_runner.write_text_atomic", lambda *args, **kwargs: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner._load_checkpoint", fake_load_checkpoint)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", fake_write_checkpoint)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_json_atomic", fake_write_json)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_text_atomic", lambda *args, **kwargs: None)
 
     def fake_analyze_pair(analyzer, pair, language, max_units_per_file, analysis_profile=None):
         return _fake_result(pair["_pair_key"], pair["rel_path"], 8.5)
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_analyze_pair)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_analyze_pair)
     analyzer = _build_analyzer()
 
     first = run_directory_analysis(
@@ -395,24 +395,24 @@ def test_directory_runner_supports_limits_and_resume(monkeypatch) -> None:
 def test_directory_runner_fail_fast_records_failure(monkeypatch) -> None:
     out_root, run_id, cp = _output_paths("dir_fail_fast")
     memory_det: dict = {}
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
-    monkeypatch.setattr("directory_runner.write_text_atomic", lambda *args, **kwargs: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_text_atomic", lambda *args, **kwargs: None)
 
     def capture_detail(path, data):
         if str(path).endswith("detailed.json"):
             memory_det.clear()
             memory_det.update(json.loads(json.dumps(data)))
 
-    monkeypatch.setattr("directory_runner.write_json_atomic", capture_detail)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_json_atomic", capture_detail)
 
     def fail_on_first(analyzer, pair, language, max_units_per_file):
         if pair["rel_path"] == "a.py":
             raise RuntimeError("boom")
         return _fake_result(pair["_pair_key"], pair["rel_path"], 3.2)
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fail_on_first)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fail_on_first)
     analyzer = _build_analyzer()
     result = run_directory_analysis(
         analyzer=analyzer,
@@ -433,15 +433,17 @@ def test_directory_runner_fail_fast_records_failure(monkeypatch) -> None:
     assert result["overview"]["failed_file_count"] >= 1
     assert len(memory_det["failed_files"]) >= 1
     assert memory_det["failed_files"][0]["failure_category"] == "analysis_error"
+    assert result["overview"]["not_executed_file_count"] == 1
+    assert result["overview"]["not_executed_files"][0]["rel_path"] == "b.py"
 
 
 def test_directory_runner_retry_failed_file_then_succeeds(monkeypatch) -> None:
     out_root, run_id, cp = _output_paths("dir_retry")
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
-    monkeypatch.setattr("directory_runner.write_json_atomic", lambda *args, **kwargs: None)
-    monkeypatch.setattr("directory_runner.write_text_atomic", lambda *args, **kwargs: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_json_atomic", lambda *args, **kwargs: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_text_atomic", lambda *args, **kwargs: None)
     state = {"a": 0}
 
     def fail_then_pass(analyzer, pair, language, max_units_per_file, analysis_profile=None):
@@ -451,7 +453,7 @@ def test_directory_runner_retry_failed_file_then_succeeds(monkeypatch) -> None:
                 raise RuntimeError("first attempt failed")
         return _fake_result(pair["_pair_key"], pair["rel_path"], 8.0)
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fail_then_pass)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fail_then_pass)
     analyzer = _build_analyzer()
     result = run_directory_analysis(
         analyzer=analyzer,
@@ -476,9 +478,9 @@ def test_directory_runner_retry_failed_file_then_succeeds(monkeypatch) -> None:
 
 
 def test_directory_runner_overview_exports_runtime_metrics_and_failure_categories(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
 
     def fail_on_a_then_pass_b(analyzer, pair, language, max_units_per_file, analysis_profile=None):
         if pair["rel_path"] == "a.py":
@@ -487,7 +489,7 @@ def test_directory_runner_overview_exports_runtime_metrics_and_failure_categorie
         result["concise_rows"][0]["analysis_backend"] = "static"
         return result
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fail_on_a_then_pass_b)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fail_on_a_then_pass_b)
     result = run_directory_analysis(
         analyzer=_build_analyzer(),
         old_root="old",
@@ -517,7 +519,7 @@ def test_directory_runner_overview_exports_runtime_metrics_and_failure_categorie
 
 def test_directory_runner_exports_manifest_skipped_files(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
-        "directory_runner.build_directory_pairs",
+        "source_diff_engine.directory.runner.build_directory_pairs",
         lambda **_: {
             "old_root": "old",
             "new_root": "new",
@@ -529,9 +531,9 @@ def test_directory_runner_exports_manifest_skipped_files(monkeypatch, tmp_path: 
             "skipped_by_reason": {"excluded_dir": 1},
         },
     )
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
-    monkeypatch.setattr("directory_runner._analyze_pair", lambda analyzer, pair, language, max_units_per_file, analysis_profile=None: _fake_result(pair["_pair_key"], pair["rel_path"], 2.0))
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", lambda analyzer, pair, language, max_units_per_file, analysis_profile=None: _fake_result(pair["_pair_key"], pair["rel_path"], 2.0))
 
     result = run_directory_analysis(
         analyzer=_build_analyzer(),
@@ -557,11 +559,11 @@ def test_directory_runner_exports_manifest_skipped_files(monkeypatch, tmp_path: 
 
 def test_directory_runner_filters_identical_modified_before_max_files(monkeypatch) -> None:
     out_root, run_id, cp = _output_paths("dir_filter")
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
-    monkeypatch.setattr("directory_runner.write_json_atomic", lambda *args, **kwargs: None)
-    monkeypatch.setattr("directory_runner.write_text_atomic", lambda *args, **kwargs: None)
-    monkeypatch.setattr("directory_runner._files_identical", lambda old, new: str(old).endswith("a.py"))
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_json_atomic", lambda *args, **kwargs: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_text_atomic", lambda *args, **kwargs: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda old, new: str(old).endswith("a.py"))
 
     seen: list[str] = []
 
@@ -569,7 +571,7 @@ def test_directory_runner_filters_identical_modified_before_max_files(monkeypatc
         seen.append(str(pair["rel_path"]))
         return _fake_result(pair["_pair_key"], pair["rel_path"], 2.0)
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_analyze_pair)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_analyze_pair)
     analyzer = _build_analyzer()
     result = run_directory_analysis(
         analyzer=analyzer,
@@ -609,17 +611,17 @@ def test_directory_runner_prioritizes_riskier_pairs_before_max_files() -> None:
 def test_directory_runner_marks_invalid_quality_when_all_modified_are_zero_units(monkeypatch) -> None:
     out_root, run_id, cp = _output_paths("dir_quality")
     memory_init: dict = {}
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
-    monkeypatch.setattr("directory_runner.write_text_atomic", lambda *args, **kwargs: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_text_atomic", lambda *args, **kwargs: None)
 
     def capture_write(path, data):
         if str(path).endswith("init_overview.json"):
             memory_init.clear()
             memory_init.update(json.loads(json.dumps(data)))
 
-    monkeypatch.setattr("directory_runner.write_json_atomic", capture_write)
+    monkeypatch.setattr("source_diff_engine.directory.runner.write_json_atomic", capture_write)
 
     def fake_zero_units(analyzer, pair, language, max_units_per_file, analysis_profile=None):
         return {
@@ -643,7 +645,7 @@ def test_directory_runner_marks_invalid_quality_when_all_modified_are_zero_units
             },
         }
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_zero_units)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_zero_units)
     analyzer = _build_analyzer()
     result = run_directory_analysis(
         analyzer=analyzer,
@@ -672,9 +674,9 @@ def test_directory_runner_marks_invalid_quality_when_all_modified_are_zero_units
 
 
 def test_directory_runner_marks_no_changes_when_all_modified_files_are_identical(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: True)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: True)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
 
     analyzer = _build_analyzer()
     result = run_directory_analysis(
@@ -699,14 +701,14 @@ def test_directory_runner_marks_no_changes_when_all_modified_files_are_identical
 
 
 def test_directory_runner_does_not_emit_legacy_flat_filenames(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
 
     def fake_analyze_pair(analyzer, pair, language, max_units_per_file, analysis_profile=None):
         return _fake_result(pair["_pair_key"], pair["rel_path"], 2.0)
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_analyze_pair)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_analyze_pair)
     analyzer = _build_analyzer()
 
     out_root = str(tmp_path / "outputs")
@@ -738,14 +740,14 @@ def test_directory_runner_does_not_emit_legacy_flat_filenames(monkeypatch, tmp_p
 
 
 def test_directory_runner_meta_merges_overrides(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
 
     def fake_analyze_pair(analyzer, pair, language, max_units_per_file, analysis_profile=None):
         return _fake_result(pair["_pair_key"], pair["rel_path"], 2.0)
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_analyze_pair)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_analyze_pair)
     analyzer = _build_analyzer()
 
     out_root = str(tmp_path / "outputs")
@@ -784,9 +786,9 @@ def test_directory_runner_meta_merges_overrides(monkeypatch, tmp_path: Path) -> 
 
 
 def test_directory_runner_high_risk_index_tracks_units_not_files(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
 
     def fake_analyze_pair(analyzer, pair, language, max_units_per_file, analysis_profile=None):
         rows = [
@@ -852,7 +854,7 @@ def test_directory_runner_high_risk_index_tracks_units_not_files(monkeypatch, tm
             "git_diff_text": "",
         }
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_analyze_pair)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_analyze_pair)
     result = run_directory_analysis(
         analyzer=_build_analyzer(),
         old_root="old",
@@ -880,9 +882,9 @@ def test_directory_runner_high_risk_index_tracks_units_not_files(monkeypatch, tm
 
 
 def test_directory_runner_exports_high_risk_review_queue(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
 
     def fake_analyze_pair(analyzer, pair, language, max_units_per_file, analysis_profile=None):
         rows = [
@@ -966,7 +968,7 @@ def test_directory_runner_exports_high_risk_review_queue(monkeypatch, tmp_path: 
             "git_diff_text": "",
         }
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_analyze_pair)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_analyze_pair)
     result = run_directory_analysis(
         analyzer=_build_analyzer(),
         old_root="old",
@@ -1004,9 +1006,9 @@ def test_directory_runner_exports_high_risk_review_queue(monkeypatch, tmp_path: 
 
 
 def test_directory_runner_executes_optional_llm_review_pass(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr("directory_runner.build_directory_pairs", lambda **_: _fake_pairs())
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner.build_directory_pairs", lambda **_: _fake_pairs())
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
 
     class _ReviewAnalyzer:
         class _LLM:
@@ -1099,7 +1101,7 @@ def test_directory_runner_executes_optional_llm_review_pass(monkeypatch, tmp_pat
             "diff_units": [diff_unit],
         }
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_analyze_pair)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_analyze_pair)
     result = run_directory_analysis(
         analyzer=_ReviewAnalyzer(),
         old_root="old",

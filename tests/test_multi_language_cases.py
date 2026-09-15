@@ -5,9 +5,9 @@ import shutil
 import uuid
 from pathlib import Path
 
-from analysis_pipeline import analyze_diff_units
-from preprocessor import SourcePreprocessor
-from source_analyzer import SourceAnalyzer
+from source_diff_engine.analysis.pipeline import analyze_diff_units
+from source_diff_engine.preprocess.source_preprocessor import SourcePreprocessor
+from source_diff_engine.source_analyzer import SourceAnalyzer
 
 REQUIRED_FIELDS = [
     "change_type",

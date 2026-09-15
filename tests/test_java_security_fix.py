@@ -5,9 +5,9 @@ import shutil
 import uuid
 from pathlib import Path
 
-from analysis_pipeline import CHANGE_SECURITY_FIX, analyze_diff_units, assess_modification_security_intent
-from preprocessor import SourcePreprocessor
-from source_analyzer import SourceAnalyzer
+from source_diff_engine.analysis.pipeline import CHANGE_SECURITY_FIX, analyze_diff_units, assess_modification_security_intent
+from source_diff_engine.preprocess.source_preprocessor import SourcePreprocessor
+from source_diff_engine.source_analyzer import SourceAnalyzer
 
 FIXTURE_ROOT = Path("tests/fixtures/basic")
 TEMP_ROOT = Path(".tmp/test-runs")

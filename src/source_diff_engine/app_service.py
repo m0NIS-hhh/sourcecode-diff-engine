@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,7 @@ from typing import Any, Dict
 
 from source_diff_engine.analysis.pipeline import analyze_diff_units_in_memory
 from source_diff_engine.analysis.profiles import DEFAULT_ANALYSIS_PROFILE, get_analysis_profile, normalize_analysis_profile, profile_llm_mode
-from source_diff_engine.config_loader import load_config
+from source_diff_engine.config_loader import DEFAULT_CONFIG_PATH, load_config
 from source_diff_engine.directory.runner import run_directory_analysis as _run_directory_analysis_engine
 from source_diff_engine.llm.client import LLMErrorInfo
 from source_diff_engine.logger_config import get_logger
@@ -37,11 +38,20 @@ from source_diff_engine.output.writer import (
 )
 from source_diff_engine.pipeline.results import normalize_evidence
 from source_diff_engine.preprocess.source_preprocessor import SourcePreprocessor
-from scripts.verify_run_consistency import verify_run as _verify_run
+from source_diff_engine.output.consistency import verify_run as _verify_run
 from source_diff_engine.source_analyzer import SourceAnalyzer
 
 logger = get_logger(__name__)
 PROMPTS_FILE = Path(__file__).resolve().parent / "llm" / "prompts.yaml"
+
+
+def _sanitize_llm_error_detail(detail: str, *, limit: int = 300) -> str:
+    """Keep service-level fallback errors bounded and free of common credentials."""
+    text = str(detail or "").strip()
+    text = re.sub(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [REDACTED]", text)
+    text = re.sub(r"(?i)(api[-_ ]?key|authorization|token)(\s*[:=]\s*)\S+", r"\1\2[REDACTED]", text)
+    text = re.sub(r"sk-[A-Za-z0-9_-]{12,}", "sk-[REDACTED]", text)
+    return text[:limit]
 
 
 def resolve_path(base_dir: str, raw_path: str) -> str:
@@ -198,15 +208,20 @@ def ensure_llm_ready(
         category = str(getattr(err, "category", "") or "unknown")
         if not isinstance(err, LLMErrorInfo):
             category = str(category or "unknown")
-        logger.exception("llm preflight failed")
+        sanitizer = getattr(analyzer.llm, "_sanitize_error_detail", None)
+        if callable(sanitizer):
+            safe_detail = str(sanitizer(str(exc)))
+        else:
+            safe_detail = _sanitize_llm_error_detail(str(exc))
+        logger.error("llm preflight failed: category=%s detail=%s", category, safe_detail)
         if mode == "required":
             raise
-        analyzer.llm.disable(reason=f"preflight_failed:{category}:{exc}")
+        analyzer.llm.disable(reason=f"preflight_failed:{category}")
         return {
             "llm_mode": mode,
             "llm_enabled": False,
             "llm_preflight": "failed_fallback_static",
-            "llm_fallback_reason": str(exc),
+            "llm_fallback_reason": safe_detail,
             "llm_error_category": category,
             "llm_skip_preflight": False,
         }
@@ -264,7 +279,13 @@ def write_single_file_outputs(
             rel_path=rel_path,
             language=language,
             status=status,
-            risk_score=float(primary_conclusion.get("vulnerability_score", 0.0) or 0.0),
+            risk_score=float(
+                primary_conclusion.get(
+                    "primary_score",
+                    primary_conclusion.get("analysis_score", primary_conclusion.get("vulnerability_score", 0.0)),
+                )
+                or 0.0
+            ),
             unit_count=len(concise_rows),
             vulnerability_type=str(primary_conclusion.get("vulnerability_type", "")),
             change_intent=str(primary_conclusion.get("change_intent", "")),
@@ -389,6 +410,21 @@ def review_single_pair(
         git_diff_text=str(pre_data.get("diff_text", "")),
         analysis_profile=normalize_analysis_profile(analysis_profile),
     )
+    llm_runtime["llm_request_count"] = int(getattr(getattr(analyzer, "llm", None), "request_count", 0) or 0)
+    metrics = getattr(getattr(analyzer, "llm", None), "metrics", None)
+    if callable(metrics):
+        llm_runtime.update(
+            {
+                f"llm_{key}": value
+                for key, value in metrics().items()
+                if key != "request_count"
+            }
+        )
+    llm_runtime["static_fallback_count"] = sum(
+        1
+        for row in mem.get("concise_rows", [])
+        if str(row.get("analysis_backend", "static")).strip().lower() != "llm"
+    )
     rel_path = Path(new_source).name
     overview = write_single_file_outputs(
         run_root=run_root,
@@ -482,7 +518,7 @@ def review_directory_diff(
 
 def smoke(
     *,
-    config_path: str = "config.json",
+    config_path: str = DEFAULT_CONFIG_PATH,
     output_root: str = str(Path("artifacts") / "outputs"),
     run_id: str = "",
     language: str = "auto",
@@ -564,7 +600,7 @@ def smoke(
 
 def doctor(
     *,
-    config_path: str = "config.json",
+    config_path: str = DEFAULT_CONFIG_PATH,
     output_root: str = str(Path("artifacts") / "outputs"),
     smoke_output_root: str = "",
     llm_mode: str = "",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from analysis_pipeline import assess_added_risk
+from source_diff_engine.analysis.pipeline import assess_added_risk
 
 
 def test_static_rules_classify_command_exec_risk() -> None:
@@ -27,6 +27,19 @@ def test_static_rules_detect_php_exec_risk() -> None:
     assert risk["risk_level"] == "high"
     assert len(risk["source_hits"]) > 0
     assert len(risk["sink_hits"]) > 0
+
+
+def test_static_rules_detect_python_deserialization_risk() -> None:
+    code = "payload = request.get_data()\nobj = pickle.loads(payload)"
+    risk = assess_added_risk(code, language="python")
+    assert risk["has_new_vulnerability"] is True
+    assert risk["rule_id"] == "deserialization"
+
+
+def test_static_rules_suppress_python_safe_yaml_load() -> None:
+    code = "payload = request.get_data()\nobj = yaml.safe_load(payload)"
+    risk = assess_added_risk(code, language="python")
+    assert risk["has_new_vulnerability"] is False
 
 
 def test_static_rules_keep_multiple_candidates_for_new_vuln() -> None:
@@ -245,3 +258,16 @@ def test_static_rules_symbol_context_does_not_replace_source_sink_evidence() -> 
     assert risk["has_new_vulnerability"] is False
     assert "symbol_name:run" in risk.get("entrypoint_hits", [])
     assert "missing" in " ".join(str(item) for item in risk.get("reasons", [])).lower()
+
+
+def test_static_rules_do_not_join_unrelated_source_and_sink_markers() -> None:
+    risk = assess_added_risk(
+        "def log_request(request):\n"
+        "    audit = request.args.get('audit')\n"
+        "    command = 'fixed-command'\n"
+        "    os.system(command)\n",
+        language="python",
+    )
+    assert risk["has_new_vulnerability"] is False
+    assert risk["candidates"] == []
+    assert "source+sink" in " ".join(risk["reasons"])

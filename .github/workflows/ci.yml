@@ -26,5 +26,12 @@ jobs:
       - name: Install package with dev dependencies
         run: python -m pip install ".[dev]"
 
+      - name: Validate standard CLI
+        run: |
+          python main.py doctor --llm-mode off
+          python main.py smoke --llm-mode off
+          python -m source_diff_engine.main doctor --llm-mode off
+          source-diff-engine doctor --llm-mode off
+
       - name: Run tests
         run: python -m pytest -q

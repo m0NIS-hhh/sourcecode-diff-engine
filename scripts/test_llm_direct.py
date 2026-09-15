@@ -10,10 +10,11 @@ from typing import Any, Dict, List
 from openai import OpenAI
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
-from config_loader import load_config
+from source_diff_engine.config_loader import load_config
 
 
 def _messages_to_responses_input(messages: List[Dict[str, str]]) -> List[Dict[str, Any]]:
@@ -132,7 +133,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Direct LLM probe using the same config/env as the project, without going through main.py"
     )
-    parser.add_argument("--config", default="config.json", type=str, help="Config file path")
+    parser.add_argument("--config", default="configs/config.example.json", type=str, help="Config file path")
     parser.add_argument("--prompt", default="Reply with exactly: pong", type=str, help="Prompt for the live request")
     parser.add_argument(
         "--api-style",

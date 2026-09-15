@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from app_service import (
+from source_diff_engine.app_service import (
     doctor,
     ensure_llm_ready,
     resolve_effective_llm_mode,
@@ -13,7 +13,7 @@ from app_service import (
     smoke,
     write_single_file_outputs,
 )
-from llm_client import LLMErrorInfo
+from source_diff_engine.llm.client import LLMErrorInfo
 
 
 def _evidence(score: float, evidence: str, *, vuln_type: str = "cmdi", sources: list[str] | None = None, guards: list[str] | None = None, sinks: list[str] | None = None, chain: str = "") -> dict:
@@ -283,7 +283,7 @@ def test_write_single_file_outputs_marks_no_changes_when_no_units(tmp_path: Path
 def test_smoke_returns_verified_run(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     output_root = tmp_path / "smoke_outputs"
-    report = smoke(config_path=str(Path(__file__).resolve().parents[1] / "config.json.example"), output_root=str(output_root), run_id="smoke_test", llm_mode="off")
+    report = smoke(config_path=str(Path(__file__).resolve().parents[1] / "configs" / "config.example.json"), output_root=str(output_root), run_id="smoke_test", llm_mode="off")
     assert report["ok"] is True
     assert report["verification"]["ok"] is True
     assert Path(report["run_root"]).exists()
@@ -293,7 +293,7 @@ def test_smoke_returns_verified_run(tmp_path: Path, monkeypatch) -> None:
 def test_doctor_reports_ok_with_static_smoke(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     report = doctor(
-        config_path=str(Path(__file__).resolve().parents[1] / "config.json.example"),
+        config_path=str(Path(__file__).resolve().parents[1] / "configs" / "config.example.json"),
         output_root=str(tmp_path / "doctor_outputs"),
         smoke_output_root=str(tmp_path / "doctor_smoke"),
         llm_mode="off",

@@ -118,6 +118,16 @@ def build_run_summary(
         "llm_enabled": bool(llm_runtime.get("llm_enabled", False)),
         "llm_preflight": str(llm_runtime.get("llm_preflight", "")),
         "llm_error_category": str(llm_runtime.get("llm_error_category", "")),
+        "llm_request_count": max(0, int(llm_runtime.get("llm_request_count", 0) or 0)),
+        "llm_preflight_request_count": max(0, int(llm_runtime.get("llm_preflight_request_count", 0) or 0)),
+        "llm_analysis_request_count": max(0, int(llm_runtime.get("llm_analysis_request_count", 0) or 0)),
+        "llm_source_review_request_count": max(0, int(llm_runtime.get("llm_source_review_request_count", 0) or 0)),
+        "llm_review_pass_request_count": max(0, int(llm_runtime.get("llm_review_pass_request_count", 0) or 0)),
+        "llm_retry_count": max(0, int(llm_runtime.get("llm_retry_count", 0) or 0)),
+        "llm_failure_categories": dict(llm_runtime.get("llm_failure_categories", {}))
+        if isinstance(llm_runtime.get("llm_failure_categories"), dict)
+        else {},
+        "static_fallback_count": max(0, int(llm_runtime.get("static_fallback_count", 0) or 0)),
         "analysis_quality": str(overview.get("analysis_quality", "unknown")),
         "quality_issues": list(overview.get("quality_issues", [])) if isinstance(overview.get("quality_issues"), list) else [],
         "total_files_analyzed": int(overview.get("total_files_analyzed", 0) or 0),
@@ -128,6 +138,7 @@ def build_run_summary(
         "decode_fallback_file_ratio": float(overview.get("decode_fallback_file_ratio", 0.0) or 0.0),
         "read_error_file_count": int(overview.get("read_error_file_count", 0) or 0),
         "skipped_file_count": int(overview.get("skipped_file_count", 0) or 0),
+        "not_executed_file_count": int(overview.get("not_executed_file_count", 0) or 0),
         "skipped_by_reason": dict(overview.get("skipped_by_reason", {})) if isinstance(overview.get("skipped_by_reason"), dict) else {},
         "by_vulnerability_type": dict(overview.get("by_vulnerability_type", {}))
         if isinstance(overview.get("by_vulnerability_type"), dict)
@@ -226,6 +237,9 @@ def build_run_summary_markdown(summary: Dict[str, Any]) -> str:
         if isinstance(skipped_by_reason, dict) and skipped_by_reason:
             reason_text = ", ".join(f"{key}={value}" for key, value in sorted(skipped_by_reason.items()))
             lines.append(f"Skipped by reason: {reason_text}")
+    not_executed_count = int(summary.get("not_executed_file_count", 0) or 0)
+    if not_executed_count:
+        lines.append(f"Not executed after fail-fast: {not_executed_count}")
     if summary.get("llm_error_category"):
         lines.append(f"LLM error category: {summary.get('llm_error_category', '')}")
     if summary.get("llm_fallback_reason"):

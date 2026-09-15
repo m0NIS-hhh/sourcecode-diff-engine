@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from directory_runner import run_directory_analysis
-from source_analyzer import SourceAnalyzer
+from source_diff_engine.directory.runner import run_directory_analysis
+from source_diff_engine.source_analyzer import SourceAnalyzer
 
 
 def _build_analyzer() -> SourceAnalyzer:
@@ -51,7 +51,7 @@ def _evidence(score: float, evidence: str, *, vuln_type: str = "x", sources: lis
 
 def test_run_level_and_pair_level_counts_are_consistent(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
-        "directory_runner.build_directory_pairs",
+        "source_diff_engine.directory.runner.build_directory_pairs",
         lambda **_: {
             "old_root": "old",
             "new_root": "new",
@@ -64,8 +64,8 @@ def test_run_level_and_pair_level_counts_are_consistent(monkeypatch, tmp_path: P
             ],
         },
     )
-    monkeypatch.setattr("directory_runner._files_identical", lambda *_: False)
-    monkeypatch.setattr("directory_runner._write_checkpoint", lambda *_: None)
+    monkeypatch.setattr("source_diff_engine.directory.runner._files_identical", lambda *_: False)
+    monkeypatch.setattr("source_diff_engine.directory.runner._write_checkpoint", lambda *_: None)
 
     def fake_analyze_pair(analyzer, pair, language, max_units_per_file, analysis_profile=None):
         rel = str(pair["rel_path"])
@@ -121,7 +121,7 @@ def test_run_level_and_pair_level_counts_are_consistent(monkeypatch, tmp_path: P
             "git_diff_text": "@@ -1 +1 @@",
         }
 
-    monkeypatch.setattr("directory_runner._analyze_pair", fake_analyze_pair)
+    monkeypatch.setattr("source_diff_engine.directory.runner._analyze_pair", fake_analyze_pair)
 
     out_root = tmp_path / "outputs"
     result = run_directory_analysis(

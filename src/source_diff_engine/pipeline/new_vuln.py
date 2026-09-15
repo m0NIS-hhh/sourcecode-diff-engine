@@ -55,6 +55,14 @@ def assess_added_risk(
         "command",
         "sql",
         "query",
+        "filter",
+        "uid",
+        "name",
+        "module",
+        "classname",
+        "class",
+        "plugin",
+        "template",
     }
 
     def _extract_signature_params(line: str, lang: str) -> str:
@@ -137,6 +145,13 @@ def assess_added_risk(
             "payload",
             "arg",
             "data",
+            "filter",
+            "uid",
+            "name",
+            "module",
+            "class",
+            "plugin",
+            "template",
         )
 
         for line in lines:
@@ -206,6 +221,7 @@ def assess_added_risk(
             "$_request",
             "$_cookie",
             "$_server",
+            "$_files",
         )
         guard_markers = (
             "if ",
@@ -281,6 +297,24 @@ def assess_added_risk(
             elif rule_id == "sqli":
                 if any(token in lowered_hit for token in ("sql", "query")):
                     hits.append(hit)
+            elif rule_id == "template_injection":
+                if any(token in lowered_hit for token in ("template", "tpl", "view", "body", "html")):
+                    hits.append(hit)
+            elif rule_id == "nosql_injection":
+                if any(token in lowered_hit for token in ("query", "filter", "json", "body", "name", "user")):
+                    hits.append(hit)
+            elif rule_id == "ldap_injection":
+                if any(token in lowered_hit for token in ("filter", "uid", "user", "name", "query")):
+                    hits.append(hit)
+            elif rule_id == "xpath_injection":
+                if any(token in lowered_hit for token in ("xpath", "query", "name", "user", "filter")):
+                    hits.append(hit)
+            elif rule_id == "dynamic_loading":
+                if any(token in lowered_hit for token in ("module", "class", "plugin", "name", "target")):
+                    hits.append(hit)
+            elif rule_id == "file_upload":
+                if any(token in lowered_hit for token in ("file", "upload", "filename", "name", "tmp")):
+                    hits.append(hit)
             else:
                 hits.append(hit)
         return list(dict.fromkeys(hits))
@@ -301,15 +335,82 @@ def assess_added_risk(
                 hits.append(f"bridge_call:{marker}")
         return hits
 
+    def _has_python_safe_subprocess_call() -> bool:
+        if lang != "python" or "subprocess." not in lowered:
+            return False
+        dangerous_non_subprocess = any(marker in lowered for marker in ("os.system(", "eval(", "exec("))
+        if dangerous_non_subprocess or "shell=true" in lowered.replace(" ", ""):
+            return False
+        compact = re.sub(r"\s+", "", lowered)
+        if "shell=false" in compact:
+            return True
+        return bool(re.search(r"subprocess\.(?:run|call|popen|check_call|check_output)\s*\(\s*\[", lowered, flags=re.S))
+
+    def _has_parameterized_sql_call(rule_id: str) -> bool:
+        if rule_id != "sqli":
+            return False
+        if lang == "python":
+            for line in lines:
+                line_l = line.lower()
+                if "cursor.execute(" not in line_l:
+                    continue
+                if re.search(r"cursor\.execute\s*\(\s*(?:[rubf]*[\"'][^\"']*[\"'])\s*,", line_l):
+                    return True
+            return False
+        if lang == "php":
+            return "mysqli_real_escape_string(" in lowered or ("->prepare(" in lowered and "->execute(" in lowered)
+        return False
+
+    def _has_path_containment_guard(rule_id: str) -> bool:
+        if rule_id != "path_traversal":
+            return False
+        if lang == "python":
+            compact = re.sub(r"\s+", "", lowered)
+            return (".resolve()" in compact and (".startswith(" in compact or ".relative_to(" in compact)) or (
+                "os.path.abspath(" in compact and "os.path.commonpath(" in compact
+            )
+        if lang == "java":
+            compact = re.sub(r"\s+", "", lowered)
+            return (".normalize()" in compact or ".torealpath(" in compact) and (".startswith(" in compact or ".relativize(" in compact)
+        return False
+
+    def _has_authorized_java_bridge_guard(rule_id: str) -> bool:
+        if lang != "java" or rule_id not in {"java_service_bridge_cmdi", "java_service_bridge_ssrf"}:
+            return False
+        return any(marker in lowered for marker in ("@preauthorize", "@postauthorize", "@secured", "@rolesallowed"))
+
+    def _has_safe_deserialization_call(rule_id: str) -> bool:
+        if rule_id != "deserialization" or lang != "python":
+            return False
+        compact = re.sub(r"\s+", "", lowered)
+        return "yaml.safe_load(" in compact or ("yaml.load(" in compact and "safeloader" in compact)
+
+    def _is_rule_suppressed_by_safe_pattern(rule_id: str) -> bool:
+        if rule_id == "cmdi" and _has_python_safe_subprocess_call():
+            return True
+        if _has_parameterized_sql_call(rule_id):
+            return True
+        if _has_path_containment_guard(rule_id):
+            return True
+        if _has_authorized_java_bridge_guard(rule_id):
+            return True
+        if _has_safe_deserialization_call(rule_id):
+            return True
+        return False
+
     lines = text.splitlines()
     symbol_signals = extract_symbol_context_signals(new_symbol_context, language=language)
 
     rule_specs = {
         "python": [
             {"rule_id": "cmdi", "vulnerability_type": "命令执行风险", "risk_level": "high", "score": 8.8, "sources": ["request.", "input(", "args", "form", "json"], "sinks": ["os.system(", "subprocess.", "eval(", "exec("]},
+            {"rule_id": "deserialization", "vulnerability_type": "反序列化风险", "risk_level": "high", "score": 8.7, "sources": ["request.", "input(", "args", "form", "json", "data"], "sinks": ["pickle.loads(", "pickle.load(", "yaml.load("]},
             {"rule_id": "sqli", "vulnerability_type": "SQL注入风险", "risk_level": "high", "score": 8.6, "sources": ["request.", "input(", "args", "form", "json", "sql"], "sinks": ["cursor.execute("]},
             {"rule_id": "path_traversal", "vulnerability_type": "路径穿越风险", "risk_level": "high", "score": 8.4, "sources": ["request.", "path", "filename", "file"], "sinks": ["open(", "send_file(", "pathlib.path("]},
             {"rule_id": "ssrf", "vulnerability_type": "SSRF风险", "risk_level": "high", "score": 8.2, "sources": ["request.", "url", "uri"], "sinks": ["requests.", "urllib.", "httpx.", "urlopen("]},
+            {"rule_id": "template_injection", "vulnerability_type": "模板注入风险", "risk_level": "high", "score": 8.3, "sources": ["request.", "input(", "args", "form", "json", "template", "tpl"], "sinks": ["render_template_string(", "jinja2.template(", ".from_string("]},
+            {"rule_id": "nosql_injection", "vulnerability_type": "NoSQL注入风险", "risk_level": "high", "score": 8.2, "sources": ["request.", "input(", "args", "form", "json", "query", "filter"], "sinks": [".find_one(", ".find(", ".aggregate(", "collection.find", "mongo.db"]},
+            {"rule_id": "dynamic_loading", "vulnerability_type": "动态加载风险", "risk_level": "high", "score": 8.0, "sources": ["request.", "input(", "args", "form", "json", "module", "class", "plugin"], "sinks": ["importlib.import_module(", "__import__(", "pkg_resources.load_entry_point("]},
         ],
         "java": [
             {"rule_id": "deserialization", "vulnerability_type": "反序列化风险", "risk_level": "high", "score": 8.9, "sources": ["request.getinputstream", "inputstream"], "sinks": ["objectinputstream", "readobject("]},
@@ -318,10 +419,15 @@ def assess_added_risk(
             {"rule_id": "ssrf", "vulnerability_type": "SSRF风险", "risk_level": "high", "score": 8.4, "sources": ["request.get", "@requestparam", "@requestbody", "url", "address"], "sinks": ["new url(", "openconnection()", "httpclient", "socket("]},
             {"rule_id": "java_service_bridge_cmdi", "vulnerability_type": "命令执行风险", "risk_level": "high", "score": 8.1, "sources": ["@requestparam", "@requestbody", "request.get"], "sinks": ["executeadvancedscript", "executeaction"]},
             {"rule_id": "java_service_bridge_ssrf", "vulnerability_type": "SSRF风险", "risk_level": "high", "score": 8.0, "sources": ["@requestparam", "@requestbody", "request.get"], "sinks": ["testconnection", "testhostconnectivity", "testtcpportconnectivity", "isurlreachable"]},
+            {"rule_id": "ldap_injection", "vulnerability_type": "LDAP注入风险", "risk_level": "high", "score": 8.3, "sources": ["request.get", "@requestparam", "@requestbody", "filter", "uid", "name"], "sinks": ["ldaptemplate.search", "dircontext.search", "ctx.search("]},
+            {"rule_id": "xpath_injection", "vulnerability_type": "XPath注入风险", "risk_level": "high", "score": 8.2, "sources": ["request.get", "@requestparam", "@requestbody", "xpath", "name"], "sinks": ["xpath.evaluate(", "xpathexpression.evaluate(", "xpath.compile("]},
+            {"rule_id": "dynamic_loading", "vulnerability_type": "动态加载风险", "risk_level": "high", "score": 8.1, "sources": ["request.get", "@requestparam", "@requestbody", "class", "classname", "module", "plugin"], "sinks": ["class.forname(", "classloader.loadclass(", "method.invoke("]},
         ],
         "php": [
             {"rule_id": "cmdi", "vulnerability_type": "命令执行风险", "risk_level": "high", "score": 8.8, "sources": ["$_get", "$_post", "$_request", "$_cookie", "$_server"], "sinks": ["system(", "exec(", "shell_exec(", "passthru(", "eval("]},
             {"rule_id": "sqli", "vulnerability_type": "SQL注入风险", "risk_level": "high", "score": 8.5, "sources": ["$_get", "$_post", "$_request", "$_cookie", "$_server"], "sinks": ["mysqli_query(", "pdo->query(", "query("]},
+            {"rule_id": "path_traversal", "vulnerability_type": "路径穿越风险", "risk_level": "high", "score": 8.4, "sources": ["$_get", "$_post", "$_request", "$_cookie", "$_server", "path", "file", "filename"], "sinks": ["file_get_contents(", "file_put_contents(", "fopen(", "readfile(", "unlink("]},
+            {"rule_id": "file_upload", "vulnerability_type": "文件上传风险", "risk_level": "high", "score": 8.3, "sources": ["$_files", "$_post", "$_request", "upload", "filename", "file"], "sinks": ["move_uploaded_file(", "copy(", "rename("]},
         ],
     }
     lang = (language or "python").lower()
@@ -331,6 +437,9 @@ def assess_added_risk(
     flow = _collect_tainted_flow(lines, lang, [sink for rule in rules for sink in rule["sinks"]])
 
     for rule in rules:
+        if _is_rule_suppressed_by_safe_pattern(str(rule["rule_id"])):
+            continue
+
         explicit_sinks = _match_markers(rule["sinks"])
         explicit_sources = _match_markers(rule["sources"])
         bridge_hits = _bridge_sink_hits(str(rule["rule_id"]))
@@ -345,6 +454,17 @@ def assess_added_risk(
             rule_id=str(rule["rule_id"]),
         )
         if not source_hits or not sink_hits:
+            continue
+        # Marker co-occurrence is not a data-flow edge. Require a tainted sink
+        # hit, or a source and sink marker on the same line, before creating a
+        # candidate.
+        rule_sink_markers = [str(marker).lower() for marker in rule["sinks"]]
+        has_reachable_sink = bool(flow["sink_hits"]) or any(
+            any(marker in line.lower() for marker in rule_sink_markers)
+            and any(source in line.lower() for source in rule["sources"])
+            for line in lines
+        )
+        if not has_reachable_sink:
             continue
 
         guard_hits = list(flow["guard_hits"])
@@ -430,6 +550,12 @@ def review_new_vulnerability_with_llm(
         return reviewed
     if not bool(getattr(analyzer.llm, "enabled", False)):
         return reviewed
+
+    # Keep the static rule result available after LLM candidates are merged or reordered.
+    reviewed["static_source_hits"] = list(part2.get("source_hits", []))
+    reviewed["static_guard_hits"] = list(part2.get("guard_hits", []))
+    reviewed["static_sink_hits"] = list(part2.get("sink_hits", []))
+    reviewed["static_condition_chain"] = str(part2.get("condition_chain", "") or "")
 
     profile_name = normalize_analysis_profile(analysis_profile)
     reviewed["llm_review_invoked"] = True
@@ -553,6 +679,18 @@ def merge_new_vulnerability(base_result: Dict[str, Any], part2: Dict[str, Any], 
                 "evidence": evidence,
             }
         )
+        candidate_status = "inferred" if str(cand.get("rule_id", "")).strip() == "llm_review" else (
+            "observed"
+            if all(
+                [
+                    cand.get("source_hits"),
+                    cand.get("guard_hits"),
+                    cand.get("sink_hits"),
+                    str(cand.get("condition_chain", "")).strip(),
+                ]
+            )
+            else "partial"
+        )
         ranked_candidates.append(
             build_ranked_candidate(
                 vulnerability_type=cand.get("vulnerability_type", VULN_PENDING),
@@ -564,8 +702,8 @@ def merge_new_vulnerability(base_result: Dict[str, Any], part2: Dict[str, Any], 
                     "sinks": cand.get("sink_hits", []),
                     "condition_chain": cand.get("condition_chain", ""),
                 },
-                support_status="inferred",
-                support_inference_level="primary",
+                support_status=candidate_status,
+                support_inference_level="primary" if candidate_status == "inferred" else "none",
                 extra={"rule_id": str(cand.get("rule_id", ""))},
             )
         )
@@ -591,24 +729,37 @@ def merge_new_vulnerability(base_result: Dict[str, Any], part2: Dict[str, Any], 
     inferred_s2s = normalize_s2s(
         ((base_evidence.get("inferred_assessment", {}) or {}).get("source_to_sink", DEFAULT_S2S))
     )
-    if primary.get("type") == part2.get("vulnerability_type"):
-        guards = list(part2.get("guard_hits", []))
-        chain = str(part2.get("condition_chain", "")).strip()
-        inferred_s2s = {
-            "sources": list(part2.get("source_hits", [])),
-            "guards": guards,
-            "sinks": list(part2.get("sink_hits", [])),
-            "condition_chain": chain or "new code input source -> missing/insufficient guard -> newly introduced dangerous sink",
+    static_s2s = normalize_s2s(
+        {
+            "sources": part2.get("static_source_hits", part2.get("source_hits", [])),
+            "guards": part2.get("static_guard_hits", part2.get("guard_hits", [])),
+            "sinks": part2.get("static_sink_hits", part2.get("sink_hits", [])),
+            "condition_chain": part2.get("static_condition_chain", part2.get("condition_chain", "")),
         }
+    )
+    if primary.get("type") == part2.get("vulnerability_type"):
+        if bool(part2.get("llm_confirmed", False)):
+            inferred_s2s = normalize_s2s(
+                {
+                    "sources": part2.get("source_hits", []),
+                    "guards": part2.get("guard_hits", []),
+                    "sinks": part2.get("sink_hits", []),
+                    "condition_chain": part2.get("condition_chain", ""),
+                }
+            )
         if raw_change_type == "added":
             merged["change_type"] = CHANGE_NEW_CODE
     merged["evidence"] = {
-        "observed_facts": {"source_to_sink": observed_s2s},
+        "observed_facts": {
+            "source_to_sink": static_s2s if part2.get("has_new_vulnerability") else observed_s2s,
+            "evidence_origin": "static_analysis",
+        },
         "inferred_assessment": {
             "source_to_sink": inferred_s2s,
             "summary": str(primary.get("evidence", "") or ""),
             "confidence": 0.0,
             "reasoning_basis": "static",
+            "evidence_origin": "llm_inference" if bool(part2.get("llm_confirmed", False)) else "static_analysis",
         },
         "ranked_candidates": ranked_candidates,
         "convenience_summary": {},

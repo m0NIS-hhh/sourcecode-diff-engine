@@ -1,4 +1,4 @@
-﻿def parse_chunk_header(line: str) -> tuple[int, str]:
+def parse_chunk_header(line: str) -> tuple[int, str]:
     size_part, _, ext = line.partition(';')
     size = int(size_part.strip(), 16)
     return size, ext.strip()
